@@ -56,6 +56,7 @@ jobs:
       run: |
         echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
         echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        # Sửa định dạng date chuẩn (không dùng gạch chéo)
         echo "BUILD_DATE=$(date +'\%Y\%m\%d_\%H\%M\%S')" >> $GITHUB_ENV
 
     - name: Cache ccache
@@ -74,13 +75,10 @@ jobs:
         tar -zxf Clang-16.0.6-20260807.tar.gz
         rm Clang-16.0.6-20260807.tar.gz
 
-        # Tạo symlink giả lập thư mục proton-clang mà build.sh yêu cầu
         mkdir -p /home/runner/proton-clang
         ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
-
         cd $GITHUB_WORKSPACE
 
-    # Tự động cập nhật patch_linux lên bản mới nhất
     - name: Force update SukiSU KernelPatch to latest
       run: |
         LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
@@ -90,10 +88,7 @@ jobs:
         }
         chmod +x /tmp/patch_linux
 
-        # Thay thế URL cũ trong các script build
         find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
-
-        # Ghi đè binary có sẵn trong mã nguồn
         find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
         cp /tmp/patch_linux ./patch_linux
 
@@ -116,17 +111,33 @@ jobs:
     - name: Prepare release files
       run: |
         mkdir -p release_files
-        find . -maxdepth 2 -name "*.zip" -exec cp {} release_files/ \; 2>/dev/null || true
-        [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-${{ github.event.inputs.device }} || true
-        [ -f out/arch/arm64/boot/dtb ] && cp out/arch/arm64/boot/dtb release_files/dtb-${{ github.event.inputs.device }} || true
-        touch release_files/build_info.txt
-        echo "Build completed for ${{ github.event.inputs.device }}" > release_files/build_info.txt
 
+        # Đổi tên file zip thành định dạng có liyafe1997
+        for f in $(find . -maxdepth 2 -name "*.zip"); do
+          base_name=$(basename "$f")
+          cp "$f" "release_files/Kernel_liyafe1997_${{ github.event.inputs.device }}_${base_name}"
+        done
+
+        # Đổi tên Image và dtb kèm tiền tố liyafe1997
+        [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-liyafe1997-${{ github.event.inputs.device }} || true
+        [ -f out/arch/arm64/boot/dtb ] && cp out/arch/arm64/boot/dtb release_files/dtb-liyafe1997-${{ github.event.inputs.device }} || true
+        
+        echo "Build completed for ${{ github.event.inputs.device }} by liyafe1997" > release_files/build_info.txt
+
+    # 1. Đưa file lên GitHub Actions Artifact
+    - name: Upload Kernel to GitHub Actions Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel-liyafe1997-${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
+        path: release_files/*
+        retention-days: 7
+
+    # 2. Đưa file lên GitHub Release
     - name: Publish GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
-        name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' || 'No-KSU' }}) -${{ env.BUILD_DATE }}"
+        tag_name: liyafe1997-${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
+        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' || 'No-KSU' }}) -${{ env.BUILD_DATE }}"
         fail_on_unmatched_files: false
         body: |
           ### Thông tin bản dựng
