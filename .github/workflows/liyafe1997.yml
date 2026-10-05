@@ -86,13 +86,13 @@ jobs:
         }
         chmod +x /tmp/patch_linux
 
-        # 2. Thay thế toàn bộ URL cứng 0.12.0 trong các script shell thành URL latest
+        # 2. Thay thế URL 0.12.0 cũ trong script build
         find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
 
-        # 3. Ghi đè file binary nếu repo có lưu sẵn file patch_linux ở bất kỳ thư mục nào
+        # 3. Ghi đè file binary nếu có sẵn trong thư mục
         find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
         
-        # 4. Đặt trực tiếp vào thư mục gốc và PATH để script luôn gọi được bản mới nhất
+        # 4. Đặt trực tiếp vào workspace và cấp quyền thực thi
         cp /tmp/patch_linux ./patch_linux
 
     - name: Build kernel
