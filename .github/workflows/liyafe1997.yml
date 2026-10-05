@@ -49,7 +49,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar libelf-dev libfl-dev
+        sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar libelf-dev libfl-dev jq
 
     - name: Set build metadata
       id: vars
@@ -75,12 +75,32 @@ jobs:
         rm Clang-15.0.7-20251111.tar.gz
         cd $GITHUB_WORKSPACE
 
+    # Bắt buộc cập nhật patch_linux lên bản phát hành mới nhất
+    - name: Force update SukiSU KernelPatch to latest
+      run: |
+        # 1. Tải bản patch_linux mới nhất từ GitHub Releases
+        LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
+        wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
+          FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
+          wget -q "$FALLBACK_URL" -O /tmp/patch_linux
+        }
+        chmod +x /tmp/patch_linux
+
+        # 2. Thay thế toàn bộ URL cứng 0.12.0 trong các script shell thành URL latest
+        find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
+
+        # 3. Ghi đè file binary nếu repo có lưu sẵn file patch_linux ở bất kỳ thư mục nào
+        find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
+        
+        # 4. Đặt trực tiếp vào thư mục gốc và PATH để script luôn gọi được bản mới nhất
+        cp /tmp/patch_linux ./patch_linux
+
     - name: Build kernel
       run: |
         export CCACHE_DIR=~/.cache/ccache_mikernel
         export USE_CCACHE=1
         export CLANG_DIR=$(pwd)/toolchain/zyc-clang
-        export PATH=$(pwd)/toolchain/zyc-clang/bin:$PATH
+        export PATH=$(pwd):$(pwd)/toolchain/zyc-clang/bin:$PATH
 
         chmod +x build.sh
         if [ "${{ github.event.inputs.include_ksu }}" = "true" ]; then
@@ -107,11 +127,12 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
-        name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' || 'No-KSU' }}) -${{ env.BUILD_DATE }}"
+        name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' \vert{}\vert{} 'No-KSU' }}) -${{ env.BUILD_DATE }}"
         body: |
           ### Thông tin bản dựng
           - **Thiết bị:** `${{ github.event.inputs.device }}`
           - **KernelSU:** `${{ github.event.inputs.include_ksu }}`
+          - **SukiSU KernelPatch:** `Latest (GitHub Releases)`
           - **Thời gian build:** `${{ env.BUILD_DATE }}`
 
           ---
