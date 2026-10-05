@@ -127,7 +127,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
-        name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' \vert{}\vert{} 'No-KSU' }}) -${{ env.BUILD_DATE }}"
+        name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' || 'No-KSU' }}) -${{ env.BUILD_DATE }}"
         body: |
           ### Thông tin bản dựng
           - **Thiết bị:** `${{ github.event.inputs.device }}`
