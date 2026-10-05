@@ -1,0 +1,124 @@
+name: Build Kernel liyafe1997
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Select device code'
+        required: true
+        default: 'munch'
+        type: choice
+        options:
+          - psyche
+          - umi
+          - munch
+          - lmi
+          - cmi
+          - cas
+          - apollo
+          - alioth
+          - elish
+          - enuma
+          - dagu
+          - pipa
+      include_ksu:
+        description: 'Does it include KSU?'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        repository: liyafe1997/kernel_xiaomi_sm8250_mod
+        ref: android15-lineage22-mod
+        fetch-depth: 1
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar libelf-dev libfl-dev
+
+    - name: Set build metadata
+      id: vars
+      run: |
+        echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+        echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +'\%Y\%m\%d_\%H\%M\%S')" >> $GITHUB_ENV
+
+    - name: Cache ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache_mikernel
+        key: ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ github.event.inputs.include_ksu }}-${{ env.SHORT_SHA }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ github.event.inputs.include_ksu }}-${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ runner.os }}-ccache-
+
+    - name: Setup zyc-clang toolchain
+      run: |
+        mkdir -p toolchain/zyc-clang
+        cd toolchain/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20251111-release/Clang-15.0.7-20251111.tar.gz
+        tar -zxf Clang-15.0.7-20251111.tar.gz
+        rm Clang-15.0.7-20251111.tar.gz
+        cd $GITHUB_WORKSPACE
+
+    - name: Build kernel
+      run: |
+        export CCACHE_DIR=~/.cache/ccache_mikernel
+        export USE_CCACHE=1
+        export CLANG_DIR=$(pwd)/toolchain/zyc-clang
+        export PATH=$(pwd)/toolchain/zyc-clang/bin:$PATH
+
+        chmod +x build.sh
+        if [ "${{ github.event.inputs.include_ksu }}" = "true" ]; then
+          bash build.sh ${{ github.event.inputs.device }} ksu
+        else
+          bash build.sh ${{ github.event.inputs.device }}
+        fi
+
+    - name: Show ccache stats
+      run: ccache -s
+
+    - name: Prepare release files
+      run: |
+        mkdir -p release_files
+        find . -maxdepth 2 -name "*.zip" -exec cp {} release_files/ \;
+        if [ -f out/arch/arm64/boot/Image ]; then
+          cp out/arch/arm64/boot/Image release_files/Image-${{ github.event.inputs.device }}
+        fi
+        if [ -f out/arch/arm64/boot/dtb ]; then
+          cp out/arch/arm64/boot/dtb release_files/dtb-${{ github.event.inputs.device }}
+        fi
+
+    - name: Publish GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
+        name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' \vert{}\vert{} 'No-KSU' }}) -${{ env.BUILD_DATE }}"
+        body: |
+          ### Thông tin bản dựng
+          - **Thiết bị:** `${{ github.event.inputs.device }}`
+          - **KernelSU:** `${{ github.event.inputs.include_ksu }}`
+          - **Thời gian build:** `${{ env.BUILD_DATE }}`
+
+          ---
+          ### Nguồn Kernel
+          - **Tác giả:** [liyafe1997](https://github.com/liyafe1997)
+          - **Repository:** [liyafe1997/kernel_xiaomi_sm8250_mod](https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod)
+          - **Branch:** `android15-lineage22-mod`
+          - **Source Commit:** [`${{ env.SHORT_SHA }}`](https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod/commit/${{ env.COMMIT_SHA }})
+        files: |
+          release_files/*
