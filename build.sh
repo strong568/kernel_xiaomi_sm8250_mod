@@ -18,12 +18,12 @@ export PATH="$TOOLCHAIN_PATH:$PATH"
 
 for cmd in aarch64-linux-gnu-ld arm-linux-gnueabi-ld clang; do
     if ! command -v $cmd >/dev/null 2>&1; then
-        echo "Lỗi: Không tìm thấy binary [$cmd] trong PATH."
+        echo "Lỗi: Không tìm thấy lệnh [$cmd] trong PATH."
         exit 1
     fi
 done
 
-# Ccache
+# Cấu hình Ccache
 export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
 export CC="ccache gcc"
 export CXX="ccache g++"
@@ -31,6 +31,7 @@ export PATH="/usr/lib/ccache:$PATH"
 
 MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
 
+# Phím tắt tiếp tục hoặc build 1 luồng để check lỗi
 if [ "$1" == "j1" ]; then
     make $MAKE_ARGS -j1
     exit 0
@@ -55,9 +56,9 @@ echo " KernelSU/SUSFS  : $KSU_ZIP_STR"
 echo " Trình biên dịch : $(clang --version | head -n 1)"
 echo "=========================================="
 
-# Thiết lập SukiSU-Ultra trực tiếp từ repo chính thức
+# Cài đặt mã nguồn SukiSU-Ultra trực tiếp từ repo chính thức
 if [ $KSU_ENABLE -eq 1 ]; then
-    echo ">> Đang tích hợp SukiSU-Ultra (main)..."
+    echo ">> Đang kéo mã nguồn SukiSU-Ultra (main)..."
     curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s main
 fi
 
@@ -76,13 +77,15 @@ local_version_date_str="-munch-$(date +%Y%m%d)-${GIT_COMMIT_ID}-perf"
 [ -f "arch/arm64/configs/${DEFCONFIG_AOSP}" ] && sed -i "s/${local_version_str}/${local_version_date_str}/g" "arch/arm64/configs/${DEFCONFIG_AOSP}"
 [ -f "arch/arm64/configs/${DEFCONFIG_MIUI}" ] && sed -i "s/${local_version_str}/${local_version_date_str}/g" "arch/arm64/configs/${DEFCONFIG_MIUI}"
 
-# Hàm cấu hình KSU và SUSFS toàn diện
+# Hàm cấu hình KSU và SUSFS toàn diện kèm olddefconfig chống lỗi EOF
 apply_ksu_susfs_config() {
     if [ $KSU_ENABLE -eq 1 ]; then
         echo ">> Đang áp dụng cấu hình SukiSU và SUSFS..."
         scripts/config --file out/.config \
             -e KSU \
             -e KSU_MANUAL_HOOK \
+            -d KSU_NONE_HOOK \
+            -e KSU_MANUAL_SU \
             -e KSU_SUSFS \
             -e KSU_SUSFS_SUS_PATH \
             -e KSU_SUSFS_SUS_MOUNT \
@@ -102,12 +105,15 @@ apply_ksu_susfs_config() {
     else
         scripts/config --file out/.config -d KSU
     fi
+
+    # Tự động gán mặc định cho các symbol mới, tránh bị dừng hỏi choice/EOF
+    make $MAKE_ARGS olddefconfig
 }
 
-# Hàm patch KPM binary cho SukiSU
+# Hàm patch KPM cho SukiSU
 patch_kpm_image() {
     if [ $KSU_ENABLE -eq 1 ]; then
-        echo ">> Áp dụng KPM patch_linux cho Image..."
+        echo ">> Đang chạy patch_linux cho Image..."
         cd out/arch/arm64/boot/
         wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux -O patch_linux
         chmod +x patch_linux
@@ -122,13 +128,13 @@ patch_kpm_image() {
 # ====================================================
 # ------------- BUILD CHO AOSP ROM -------------------
 # ====================================================
-echo ">> [1/2] Build kernel AOSP ($DEFCONFIG_AOSP)..."
+echo ">> [1/2] Build kernel AOSP (sử dụng $DEFCONFIG_AOSP)..."
 make $MAKE_ARGS $DEFCONFIG_AOSP
 apply_ksu_susfs_config
 make $MAKE_ARGS -j$(nproc)
 
 if [ ! -f "out/arch/arm64/boot/Image" ]; then
-    echo "Lỗi: Build Image cho AOSP thất bại!"
+    echo "Lỗi: Không tìm thấy out/arch/arm64/boot/Image cho AOSP!"
     exit 1
 fi
 
@@ -146,19 +152,19 @@ ZIP_AOSP="Kernel_AOSP_munch_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_${GIT_COMMIT
 zip -r9 "$ZIP_AOSP" ./* -x .git .gitignore out/ ./*.zip
 mv "$ZIP_AOSP" ../
 cd ..
-echo ">> Đã đóng gói xong AOSP: $ZIP_AOSP"
+echo ">> Build AOSP hoàn tất: $ZIP_AOSP"
 
 
 # ====================================================
 # ------------- BUILD CHO MIUI / HYPEROS -------------
 # ====================================================
-echo ">> [2/2] Build kernel MIUI/HyperOS ($DEFCONFIG_MIUI)..."
+echo ">> [2/2] Build kernel MIUI/HyperOS (sử dụng $DEFCONFIG_MIUI)..."
 rm -rf out/
 
 dts_source=arch/arm64/boot/dts/vendor/qcom
 cp -a ${dts_source} .dts.bak
 
-# Tinh chỉnh panel l11r của POCO F4
+# Tinh chỉnh panel l11r cho POCO F4 / Redmi K40S (munch)
 sed -i 's/<155>/<1546>/g' ${dts_source}/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi 2>/dev/null || true
 sed -i 's/<70>/<695>/g'   ${dts_source}/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi 2>/dev/null || true
 sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel-l11r* 2>/dev/null || true
@@ -168,7 +174,6 @@ sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/qcom,mdss-dsi-qsync-min-refre
 make $MAKE_ARGS $DEFCONFIG_MIUI
 apply_ksu_susfs_config
 
-# Bật framework MIUI và tối ưu bộ nhớ
 scripts/config --file out/.config \
     --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
     -e PERF_CRITICAL_RT_TASK \
@@ -197,10 +202,13 @@ scripts/config --file out/.config \
     -e MI_RECLAIM \
     -e RTMM
 
+# Áp dụng olddefconfig sau khi bổ sung các cờ MIUI
+make $MAKE_ARGS olddefconfig
+
 make $MAKE_ARGS -j$(nproc)
 
 if [ ! -f "out/arch/arm64/boot/Image" ]; then
-    echo "Lỗi: Build Image cho MIUI thất bại!"
+    echo "Lỗi: Không tìm thấy out/arch/arm64/boot/Image cho MIUI!"
     rm -rf ${dts_source} && mv .dts.bak ${dts_source}
     exit 1
 fi
@@ -230,118 +238,6 @@ cd ..
 
 echo "=========================================="
 echo ">> Hoàn tất build kernel cho munch:"
-echo "   - Bản AOSP: [./$ZIP_AOSP]"
-echo "   - Bản MIUI: [./$ZIP_MIUI]"
+echo "   - File AOSP : [./$ZIP_AOSP]"
+echo "   - File MIUI : [./$ZIP_MIUI]"
 echo "=========================================="
-ce}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-sed -i 's/\/\/39 01 00 00 11 00 03 51 03 FF/39 01 00 00 11 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j2-p2-1-38-0c-0a-dsc-cmd.dtsi
-
-
-make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
-
-if [ $KSU_ENABLE -eq 1 ]; then
-    scripts/config --file out/.config \
-    -e KSU \
-    -e KSU_SUSFS \
-    -e KSU_SUSFS_SUS_PATH \
-    -e KSU_SUSFS_SUS_MOUNT \
-    -e KSU_SUSFS_SUS_KSTAT \
-    -e KSU_SUSFS_SPOOF_UNAME \
-    -e KSU_SUSFS_ENABLE_LOG \
-    -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-    -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-    -e KSU_SUSFS_OPEN_REDIRECT \
-    -e KSU_SUSFS_SUS_MAP \
-    -e THREAD_INFO_IN_TASK \
-    -e KPM
-else
-    scripts/config --file out/.config -d KSU
-fi
-
-
-scripts/config --file out/.config \
-    --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
-    -e PERF_CRITICAL_RT_TASK	\
-    -e SF_BINDER		\
-    -e OVERLAY_FS		\
-    -d DEBUG_FS \
-    -e MIGT \
-    -e MIGT_ENERGY_MODEL \
-    -e MIHW \
-    -e PACKAGE_RUNTIME_INFO \
-    -e BINDER_OPT \
-    -e KPERFEVENTS \
-    -e MILLET \
-    -e PERF_HUMANTASK \
-    -d LTO_CLANG \
-    -d LOCALVERSION_AUTO \
-    -e SF_BINDER \
-    -e XIAOMI_MIUI \
-    -d MI_MEMORY_SYSFS \
-    -e TASK_DELAY_ACCT \
-    -e MIUI_ZRAM_MEMORY_TRACKING \
-    -d CONFIG_MODULE_SIG_SHA512 \
-    -d CONFIG_MODULE_SIG_HASH \
-    -e MI_FRAGMENTION \
-    -e PERF_HELPER \
-    -e BOOTUP_RECLAIM \
-    -e MI_RECLAIM \
-    -e RTMM \
-
-make $MAKE_ARGS -j$(nproc)
-
-
-
-if [ -f "out/arch/arm64/boot/Image" ]; then
-    echo "The file [out/arch/arm64/boot/Image] exists. MIUI Build successfully."
-else
-    echo "The file [out/arch/arm64/boot/Image] does not exist. Seems MIUI build failed."
-    exit 1
-fi
-
-echo "Generating [out/arch/arm64/boot/dtb]......"
-find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + >out/arch/arm64/boot/dtb
-
-
-# Restore modified dts
-rm -rf ${dts_source}
-mv .dts.bak ${dts_source}
-
-rm -rf anykernel/kernels/
-mkdir -p anykernel/kernels/
-
-# Patch for SukiSU KPM support. 
-if [ $KSU_ENABLE -eq 1 ]; then
-    cd out/arch/arm64/boot/
-    # wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.2/patch_linux
-    wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux
-    chmod +x patch_linux
-    ./patch_linux
-    rm Image
-    mv oImage Image
-    cd -
-fi
-
-cp out/arch/arm64/boot/Image anykernel/kernels/
-cp out/arch/arm64/boot/dtb anykernel/kernels/
-
-echo "Build for MIUI finished."
-
-# Restore local version string
-sed -i "s/${local_version_date_str}/${local_version_str}/g" arch/arm64/configs/${TARGET_DEVICE}_defconfig
-
-# ------------- End of Building for MIUI -------------
-#  If you don't need MIUI you can comment out the above block [Building for MIUI]
-
-
-cd anykernel 
-
-ZIP_FILENAME=Kernel_MIUI_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip
-
-zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip
-
-mv $ZIP_FILENAME ../
-
-cd ..
-
-echo "Done. The flashable zip is: [./$ZIP_FILENAME]"
