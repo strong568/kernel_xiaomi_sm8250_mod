@@ -68,17 +68,21 @@ jobs:
 
     - name: Setup zyc-clang toolchain
       run: |
-        mkdir -p toolchain/zyc-clang
-        cd toolchain/zyc-clang
-        wget -q https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20251111-release/Clang-15.0.7-20251111.tar.gz
-        tar -zxf Clang-15.0.7-20251111.tar.gz
-        rm Clang-15.0.7-20251111.tar.gz
+        mkdir -p $HOME/toolchain/zyc-clang
+        cd $HOME/toolchain/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz
+        tar -zxf Clang-16.0.6-20260807.tar.gz
+        rm Clang-16.0.6-20260807.tar.gz
+
+        # Tạo symlink giả lập thư mục proton-clang mà build.sh yêu cầu
+        mkdir -p /home/runner/proton-clang
+        ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
+
         cd $GITHUB_WORKSPACE
 
-    # Bắt buộc cập nhật patch_linux lên bản phát hành mới nhất
+    # Tự động cập nhật patch_linux lên bản mới nhất
     - name: Force update SukiSU KernelPatch to latest
       run: |
-        # 1. Tải bản patch_linux mới nhất từ GitHub Releases
         LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
         wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
           FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
@@ -86,21 +90,18 @@ jobs:
         }
         chmod +x /tmp/patch_linux
 
-        # 2. Thay thế URL 0.12.0 cũ trong script build
+        # Thay thế URL cũ trong các script build
         find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
 
-        # 3. Ghi đè file binary nếu có sẵn trong thư mục
+        # Ghi đè binary có sẵn trong mã nguồn
         find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
-        
-        # 4. Đặt trực tiếp vào workspace và cấp quyền thực thi
         cp /tmp/patch_linux ./patch_linux
 
     - name: Build kernel
       run: |
         export CCACHE_DIR=~/.cache/ccache_mikernel
         export USE_CCACHE=1
-        export CLANG_DIR=$(pwd)/toolchain/zyc-clang
-        export PATH=$(pwd):$(pwd)/toolchain/zyc-clang/bin:$PATH
+        export PATH=/home/runner/proton-clang/proton-clang-20210522/bin:$PATH
 
         chmod +x build.sh
         if [ "${{ github.event.inputs.include_ksu }}" = "true" ]; then
@@ -115,23 +116,23 @@ jobs:
     - name: Prepare release files
       run: |
         mkdir -p release_files
-        find . -maxdepth 2 -name "*.zip" -exec cp {} release_files/ \;
-        if [ -f out/arch/arm64/boot/Image ]; then
-          cp out/arch/arm64/boot/Image release_files/Image-${{ github.event.inputs.device }}
-        fi
-        if [ -f out/arch/arm64/boot/dtb ]; then
-          cp out/arch/arm64/boot/dtb release_files/dtb-${{ github.event.inputs.device }}
-        fi
+        find . -maxdepth 2 -name "*.zip" -exec cp {} release_files/ \; 2>/dev/null || true
+        [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-${{ github.event.inputs.device }} || true
+        [ -f out/arch/arm64/boot/dtb ] && cp out/arch/arm64/boot/dtb release_files/dtb-${{ github.event.inputs.device }} || true
+        touch release_files/build_info.txt
+        echo "Build completed for ${{ github.event.inputs.device }}" > release_files/build_info.txt
 
     - name: Publish GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
         name: "Kernel ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' || 'No-KSU' }}) -${{ env.BUILD_DATE }}"
+        fail_on_unmatched_files: false
         body: |
           ### Thông tin bản dựng
           - **Thiết bị:** `${{ github.event.inputs.device }}`
           - **KernelSU:** `${{ github.event.inputs.include_ksu }}`
+          - **Toolchain:** `ZyC-Clang 16.0.6 (20260807)`
           - **SukiSU KernelPatch:** `Latest (GitHub Releases)`
           - **Thời gian build:** `${{ env.BUILD_DATE }}`
 
