@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: '选择设备代号'
+        description: 'Select device code'
         required: true
-        default: 'lmi'
+        default: 'munch'
         type: choice
         options:
           - psyche
@@ -22,7 +22,7 @@ on:
           - dagu
           - pipa
       include_ksu:
-        description: '是否包含KSU'
+        description: 'Does it include KSU?'
         required: true
         default: 'true'
         type: choice
