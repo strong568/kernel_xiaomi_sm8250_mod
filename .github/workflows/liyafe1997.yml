@@ -56,8 +56,7 @@ jobs:
       run: |
         echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
         echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-        # Sửa định dạng date chuẩn (không dùng gạch chéo)
-        echo "BUILD_DATE=$(date +'\%Y\%m\%d_\%H\%M\%S')" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
 
     - name: Cache ccache
       uses: actions/cache@v4
