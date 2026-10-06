@@ -80,7 +80,7 @@ jobs:
       if: matrix.su_type == 'sukisu'
       run: |
         # Đổi link tải SukiSU trong build.sh sang nhánh main chính thức
-        sed -i 's|curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*|curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" \| bash -s main|g' build.sh
+        sed -i 's|curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*|curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main|g' build.sh
 
         # Thay tên file zip phân biệt giữa 2 bản
         sed -i 's/KSU_ZIP_STR=SukiSU-SUSFS/KSU_ZIP_STR=SukiSU-Ultra/g' build.sh
