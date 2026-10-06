@@ -1,4 +1,4 @@
-name: Build Kernel liyafe1997 with SukiSU & BakaSU
+name: Build Kernel liyafe1997 with SukiSU & KernelSU-Next
 
 on:
   workflow_dispatch:
@@ -78,6 +78,7 @@ jobs:
         ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
         cd $GITHUB_WORKSPACE
 
+    # 1. Khôi phục và cập nhật SukiSU KernelPatch patch_linux
     - name: Force update SukiSU KernelPatch to latest
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
@@ -92,29 +93,29 @@ jobs:
         find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
         cp /tmp/patch_linux ./patch_linux
 
-    - name: Setup BakaSU Kernel Driver & Patch Checks
+    # 2. Cài đặt KernelSU-Next nhánh dev
+    - name: Setup KernelSU-Next (dev)
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
-        curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -
+        # Chạy script setup từ raw URL với tham số nhánh dev
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev
 
-        # Bỏ qua chặn build khi gặp hook không tương thích
-        find . -name "manual_hook_check.mk" -exec sed -i 's/\$(error.*)/# \0/g' {} +
-
-        # Trích xuất version code/name của BakaSU để ghi vào Release
+        # Trích xuất commit/tag của KernelSU-Next
         KSU_DIR=""
+        [ -d "KernelSU-Next" ] && KSU_DIR="KernelSU-Next"
         [ -d "KernelSU" ] && KSU_DIR="KernelSU"
         [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
 
         if [ -n "$KSU_DIR" ]; then
           cd $KSU_DIR
-          BAKA_VER=$(git describe --tags --always 2>/dev/null || echo "v4.x-latest")
-          BAKA_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          KSU_VER=$(git describe --tags --always 2>/dev/null || echo "dev-branch")
+          KSU_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
           cd $GITHUB_WORKSPACE
-          echo "BAKASU_VER=$BAKA_VER" >> $GITHUB_ENV
-          echo "BAKASU_SHA=$BAKA_SHA" >> $GITHUB_ENV
+          echo "KSUNEXT_VER=$KSU_VER" >> $GITHUB_ENV
+          echo "KSUNEXT_SHA=$KSU_SHA" >> $GITHUB_ENV
         else
-          echo "BAKASU_VER=v4.2.0-rc3" >> $GITHUB_ENV
-          echo "BAKASU_SHA=latest" >> $GITHUB_ENV
+          echo "KSUNEXT_VER=dev" >> $GITHUB_ENV
+          echo "KSUNEXT_SHA=latest" >> $GITHUB_ENV
         fi
 
     - name: Build kernel
@@ -159,29 +160,25 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: liyafe1997-${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
-        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (SukiSU + BakaSU) -${{ env.BUILD_DATE }}"
+        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (SukiSU + KSU-Next dev) -${{ env.BUILD_DATE }}"
         fail_on_unmatched_files: false
         body: |
           ### 📱 Thông tin bản dựng
           - **Thiết bị:** `${{ github.event.inputs.device }}`
           - **Thời gian build:** `${{ env.BUILD_DATE }}`
           - **Toolchain:** `ZyC-Clang 16.0.6 (20260807)`
-          - **Driver BakaSU tích hợp:** `${{ env.BAKASU_VER }} (${{ env.BAKASU_SHA }})`
+          - **Driver KernelSU-Next:** `${{ env.KSUNEXT_VER }} (${{ env.KSUNEXT_SHA }})`
 
           ---
-          ### 📲 Link Tải Manager Tương Thích Trực Tiếp
+          ### 📲 Link Tải Manager Khuyến Nghị
 
-          #### 1. BakaSU Manager (Khuyến nghị cho driver BakaSU)
-          - **BakaSU Manager (Releases):** [Baka-SU/BakaSU/releases](https://github.com/Baka-SU/BakaSU/releases)
-          - **Tải APK mới nhất:** [BakaSU Latest APK](https://github.com/Baka-SU/BakaSU/releases/latest)
-          - *Lưu ý:* BakaSU hỗ trợ chuẩn tương thích với cả KernelSU Official Manager và KOWSU Manager.
+          #### 1. KernelSU-Next Manager (Chuẩn cho driver dev)
+          - **KernelSU-Next Manager (Releases):** [KernelSU-Next/KernelSU-Next/releases](https://github.com/KernelSU-Next/KernelSU-Next/releases)
+          - **Tải bản Manager mới nhất:** [KernelSU-Next Latest Release](https://github.com/KernelSU-Next/KernelSU-Next/releases/latest)
 
-          #### 2. SukiSU / KernelPatch Manager
-          - **SukiSU Manager (GitHub):** [SukiSU-Ultra/SukiSU-Manager/releases](https://github.com/SukiSU-Ultra/SukiSU-Manager/releases)
+          #### 2. SukiSU Manager (Quản lý SukiSU / KernelPatch)
+          - **SukiSU Manager:** [SukiSU-Ultra/SukiSU-Manager/releases](https://github.com/SukiSU-Ultra/SukiSU-Manager/releases)
           - **KernelPatch patch_linux:** [SukiSU_KernelPatch_patch/releases](https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases)
-
-          #### 3. KernelSU Official Manager (Dự phòng)
-          - **KernelSU Manager:** [tiann/KernelSU/releases](https://github.com/tiann/KernelSU/releases)
 
           ---
           ### 🛠 Nguồn Kernel
