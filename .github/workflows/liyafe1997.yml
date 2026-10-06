@@ -77,7 +77,7 @@ jobs:
         mkdir -p /home/runner/proton-clang
         ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
         cd $GITHUB_WORKSPACE
-        - name: Verify SuSFS Patches
+     - name: Verify SuSFS Patches
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
         echo "================================================="
