@@ -56,7 +56,7 @@ jobs:
       run: |
         echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
         echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-        echo "BUILD_DATE=$(date +'\%Y\%m\%d_\%H\%M\%S')" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +\%Y\%m\%d_\%H\%M\%S)" >> $GITHUB_ENV
 
     - name: Cache ccache
       uses: actions/cache@v4
@@ -81,19 +81,17 @@ jobs:
     - name: Patch build.sh (Disable hardcoded SukiSU curl)
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
-        # 1. Comment out dòng tải SukiSU cũ trong build.sh (đoạn curl setup.sh | bash -s ...)
+        # Vô hiệu hóa dòng tải SukiSU cũ trong build.sh
         sed -i '/SukiSU-Ultra.*kernel\/setup.sh/s/^/#/' build.sh
 
-        # 2. Ngăn build.sh tải đè patch_linux 0.12.0 cũ bằng cách đổi thành kiểm tra nếu có sẵn thì bỏ qua
+        # Tránh việc build.sh tải đè bản patch_linux 0.12.0
         sed -i 's|wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux|[ -f patch_linux ] \|\| wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' build.sh
 
     - name: Setup KernelSU-Next (dev branch)
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
-        # Kéo và thiết lập driver KernelSU-Next dev trực tiếp vào cây mã nguồn kernel
         curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev
 
-        # Trích xuất commit/tag để ghi chú vào release
         KSU_DIR=""
         [ -d "KernelSU-Next" ] && KSU_DIR="KernelSU-Next"
         [ -d "KernelSU" ] && KSU_DIR="KernelSU"
@@ -114,7 +112,6 @@ jobs:
     - name: Prepare Latest SukiSU KernelPatch patch_linux
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
-        # Tải patch_linux mới nhất vào thư mục gốc để sẵn sàng sử dụng
         LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
         wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
           FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
@@ -130,7 +127,6 @@ jobs:
         export PATH=/home/runner/proton-clang/proton-clang-20210522/bin:$PATH
         export KSU_MANUAL_HOOK=y
 
-        # Trước khi build, copy patch_linux vào thư mục out để build.sh không bị tải lại bản 0.12.0
         mkdir -p out/arch/arm64/boot/
         cp -f ./patch_linux out/arch/arm64/boot/ 2>/dev/null || true
 
