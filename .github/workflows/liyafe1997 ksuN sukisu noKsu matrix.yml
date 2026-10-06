@@ -1,0 +1,165 @@
+name: Build Kernel liyafe1997 with Matrix (SukiSU, KSU-Next & NoKSU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Select device code'
+        required: true
+        default: 'munch'
+        type: choice
+        options:
+          - psyche
+          - umi
+          - munch
+          - lmi
+          - cmi
+          - cas
+          - apollo
+          - alioth
+          - elish
+          - enuma
+          - dagu
+          - pipa
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        su_type: [sukisu, ksun, noksu]
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        repository: liyafe1997/kernel_xiaomi_sm8250_mod
+        ref: android15-lineage22-mod
+        fetch-depth: 1
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar libelf-dev libfl-dev jq
+
+    - name: Set build metadata
+      id: vars
+      run: |
+        echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+        echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+
+    - name: Cache ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache_mikernel
+        key: ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ matrix.su_type }}-${{ env.SHORT_SHA }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ matrix.su_type }}-
+          ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-
+
+    - name: Setup zyc-clang toolchain
+      run: |
+        mkdir -p $HOME/toolchain/zyc-clang
+        cd $HOME/toolchain/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz
+        tar -zxf Clang-16.0.6-20260807.tar.gz
+        rm Clang-16.0.6-20260807.tar.gz
+
+        mkdir -p /home/runner/proton-clang
+        ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
+        cd $GITHUB_WORKSPACE
+
+    # Cấu hình cho nhánh SukiSU
+    - name: Configure Root Solution for SukiSU
+      if: matrix.su_type == 'sukisu'
+      run: |
+        # Đổi link tải SukiSU trong build.sh sang repo chính thức nhánh main
+        sed -i 's#curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*#curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main#g' build.sh
+
+        # Thay tên file zip phân biệt giữa các bản
+        sed -i 's#KSU_ZIP_STR=SukiSU-SUSFS#KSU_ZIP_STR=SukiSU-Ultra#g' build.sh
+
+        # Tải patch_linux mới nhất cho SukiSU KPM
+        LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
+        wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
+          FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
+          wget -q "$FALLBACK_URL" -O /tmp/patch_linux
+        }
+        chmod +x /tmp/patch_linux
+        cp /tmp/patch_linux ./patch_linux
+
+        # Ngăn build.sh tải đè bản cũ 0.12.0
+        sed -i 's#wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*#true#g' build.sh
+
+    # Cấu hình cho nhánh KernelSU-Next
+    - name: Configure Root Solution for KernelSU-Next
+      if: matrix.su_type == 'ksun'
+      run: |
+        # Đổi link tải sang KernelSU-Next dev
+        sed -i 's#curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*#curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev#g' build.sh
+
+        # Vô hiệu hóa toàn bộ khâu KernelPatch sau khi build
+        sed -i 's#wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*#true#g' build.sh
+        sed -i 's#chmod +x patch_linux#true#g' build.sh
+        sed -i 's#\./patch_linux#true#g' build.sh
+        sed -i 's#rm Image#true#g' build.sh
+        sed -i 's#mv oImage Image#true#g' build.sh
+
+        # Đổi tên hiển thị cho file zip
+        sed -i 's#KSU_ZIP_STR=SukiSU-SUSFS#KSU_ZIP_STR=KernelSU-Next#g' build.sh
+
+    - name: Build kernel
+      run: |
+        export CCACHE_DIR=~/.cache/ccache_mikernel
+        export USE_CCACHE=1
+        export PATH=/home/runner/proton-clang/proton-clang-20210522/bin:$PATH
+
+        mkdir -p out/arch/arm64/boot/
+        [ -f ./patch_linux ] && cp -f ./patch_linux out/arch/arm64/boot/ 2>/dev/null || true
+
+        chmod +x build.sh
+
+        # Kiểm tra biến matrix để truyền tham số ksu tương ứng
+        if [ "${{ matrix.su_type }}" = "noksu" ]; then
+          bash build.sh ${{ github.event.inputs.device }}
+        else
+          export KSU_MANUAL_HOOK=y
+          bash build.sh ${{ github.event.inputs.device }} ksu
+        fi
+
+    - name: Show ccache stats
+      run: ccache -s
+
+    - name: Prepare release files
+      run: |
+        mkdir -p release_files
+
+        for f in $(find . -maxdepth 2 -name "*.zip"); do
+          base_name=$(basename "$f")
+          cp "$f" "release_files/${{ matrix.su_type }}_${base_name}"
+        done
+
+        [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-${{ matrix.su_type }}-${{ github.event.inputs.device }} || true
+        [ -f out/arch/arm64/boot/dtb ] && cp out/arch/arm64/boot/dtb release_files/dtb-${{ matrix.su_type }}-${{ github.event.inputs.device }} || true
+
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel-${{ github.event.inputs.device }}-${{ matrix.su_type }}-${{ env.BUILD_DATE }}
+        path: release_files/*
+        retention-days: 7
+
+    - name: Publish GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
+        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (${{ matrix.su_type }}) - ${{ env.BUILD_DATE }}"
+        fail_on_unmatched_files: false
+        files: |
+          release_files/*
