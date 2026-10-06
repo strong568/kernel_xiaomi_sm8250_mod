@@ -148,7 +148,7 @@ jobs:
 
         for f in $(find . -maxdepth 2 -name "*.zip"); do
           base_name=$(basename "$f")
-          cp "$f" "release_files/${{ matrix.su_type }}_${base_name}"
+          cp "$f" "release_files/Kernel_liyafe1997_${{ matrix.su_type }}_${base_name}"
         done
 
         [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-${{ matrix.su_type }}-${{ github.event.inputs.device }} || true
@@ -157,7 +157,7 @@ jobs:
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Kernel-${{ github.event.inputs.device }}-${{ matrix.su_type }}-${{ env.BUILD_DATE }}
+        name: Kernel_liyafe1997-${{ github.event.inputs.device }}-${{ matrix.su_type }}-${{ env.BUILD_DATE }}
         path: release_files/*
         retention-days: 7
 
