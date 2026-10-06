@@ -1,0 +1,190 @@
+name: Build Kernel liyafe1997 with SukiSU & KernelSU-Next
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: 'Select device code'
+        required: true
+        default: 'munch'
+        type: choice
+        options:
+          - psyche
+          - umi
+          - munch
+          - lmi
+          - cmi
+          - cas
+          - apollo
+          - alioth
+          - elish
+          - enuma
+          - dagu
+          - pipa
+      include_ksu:
+        description: 'Does it include KSU / SU solutions?'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        repository: liyafe1997/kernel_xiaomi_sm8250_mod
+        ref: android15-lineage22-mod
+        fetch-depth: 1
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache python-is-python3 tar libelf-dev libfl-dev jq
+
+    - name: Set build metadata
+      id: vars
+      run: |
+        echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+        echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +'\%Y\%m\%d_\%H\%M\%S')" >> $GITHUB_ENV
+
+    - name: Cache ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache_mikernel
+        key: ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ github.event.inputs.include_ksu }}-${{ env.SHORT_SHA }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ github.event.inputs.include_ksu }}-${{ runner.os }}-ccache-${{ github.event.inputs.device }}-${{ runner.os }}-ccache-
+
+    - name: Setup zyc-clang toolchain
+      run: |
+        mkdir -p $HOME/toolchain/zyc-clang
+        cd $HOME/toolchain/zyc-clang
+        wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz
+        tar -zxf Clang-16.0.6-20260807.tar.gz
+        rm Clang-16.0.6-20260807.tar.gz
+
+        mkdir -p /home/runner/proton-clang
+        ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
+        cd $GITHUB_WORKSPACE
+
+    # 1. Khôi phục và cập nhật SukiSU KernelPatch patch_linux
+    - name: Force update SukiSU KernelPatch to latest
+      if: ${{ github.event.inputs.include_ksu == 'true' }}
+      run: |
+        LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
+        wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
+          FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
+          wget -q "$FALLBACK_URL" -O /tmp/patch_linux
+        }
+        chmod +x /tmp/patch_linux
+
+        find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
+        find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
+        cp /tmp/patch_linux ./patch_linux
+
+    # 2. Cài đặt KernelSU-Next nhánh dev
+    - name: Setup KernelSU-Next (dev)
+      if: ${{ github.event.inputs.include_ksu == 'true' }}
+      run: |
+        # Chạy script setup từ raw URL với tham số nhánh dev
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev
+
+        # Trích xuất commit/tag của KernelSU-Next
+        KSU_DIR=""
+        [ -d "KernelSU-Next" ] && KSU_DIR="KernelSU-Next"
+        [ -d "KernelSU" ] && KSU_DIR="KernelSU"
+        [ -d "drivers/kernelsu" ] && KSU_DIR="drivers/kernelsu"
+
+        if [ -n "$KSU_DIR" ]; then
+          cd $KSU_DIR
+          KSU_VER=$(git describe --tags --always 2>/dev/null || echo "dev-branch")
+          KSU_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          cd $GITHUB_WORKSPACE
+          echo "KSUNEXT_VER=$KSU_VER" >> $GITHUB_ENV
+          echo "KSUNEXT_SHA=$KSU_SHA" >> $GITHUB_ENV
+        else
+          echo "KSUNEXT_VER=dev" >> $GITHUB_ENV
+          echo "KSUNEXT_SHA=latest" >> $GITHUB_ENV
+        fi
+
+    - name: Build kernel
+      run: |
+        export CCACHE_DIR=~/.cache/ccache_mikernel
+        export USE_CCACHE=1
+        export PATH=/home/runner/proton-clang/proton-clang-20210522/bin:$PATH
+        export KSU_MANUAL_HOOK=y
+
+        chmod +x build.sh
+        if [ "${{ github.event.inputs.include_ksu }}" = "true" ]; then
+          bash build.sh ${{ github.event.inputs.device }} ksu
+        else
+          bash build.sh ${{ github.event.inputs.device }}
+        fi
+
+    - name: Show ccache stats
+      run: ccache -s
+
+    - name: Prepare release files
+      run: |
+        mkdir -p release_files
+
+        for f in $(find . -maxdepth 2 -name "*.zip"); do
+          base_name=$(basename "$f")
+          cp "$f" "release_files/Kernel_liyafe1997_${{ github.event.inputs.device }}_${base_name}"
+        done
+
+        [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-liyafe1997-${{ github.event.inputs.device }} || true
+        [ -f out/arch/arm64/boot/dtb ] && cp out/arch/arm64/boot/dtb release_files/dtb-liyafe1997-${{ github.event.inputs.device }} || true
+
+        echo "Build completed for ${{ github.event.inputs.device }} by liyafe1997" > release_files/build_info.txt
+
+    - name: Upload Kernel to GitHub Actions Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kernel-liyafe1997-${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
+        path: release_files/*
+        retention-days: 7
+
+    - name: Publish GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: liyafe1997-${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
+        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (SukiSU + KSU-Next dev) -${{ env.BUILD_DATE }}"
+        fail_on_unmatched_files: false
+        body: |
+          ### 📱 Thông tin bản dựng
+          - **Thiết bị:** `${{ github.event.inputs.device }}`
+          - **Thời gian build:** `${{ env.BUILD_DATE }}`
+          - **Toolchain:** `ZyC-Clang 16.0.6 (20260807)`
+          - **Driver KernelSU-Next:** `${{ env.KSUNEXT_VER }} (${{ env.KSUNEXT_SHA }})`
+
+          ---
+          ### 📲 Link Tải Manager Khuyến Nghị
+
+          #### 1. KernelSU-Next Manager (Chuẩn cho driver dev)
+          - **KernelSU-Next Manager (Releases):** [KernelSU-Next/KernelSU-Next/releases](https://github.com/KernelSU-Next/KernelSU-Next/releases)
+          - **Tải bản Manager mới nhất:** [KernelSU-Next Latest Release](https://github.com/KernelSU-Next/KernelSU-Next/releases/latest)
+
+          #### 2. SukiSU Manager (Quản lý SukiSU / KernelPatch)
+          - **SukiSU Manager:** [SukiSU-Ultra/SukiSU-Manager/releases](https://github.com/SukiSU-Ultra/SukiSU-Manager/releases)
+          - **KernelPatch patch_linux:** [SukiSU_KernelPatch_patch/releases](https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases)
+
+          ---
+          ### 🛠 Nguồn Kernel
+          - **Tác giả:** [liyafe1997](https://github.com/liyafe1997)
+          - **Repository:** [liyafe1997/kernel_xiaomi_sm8250_mod](https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod)
+          - **Branch:** `android15-lineage22-mod`
+          - **Commit:** [`${{ env.SHORT_SHA }}`](https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod/commit/${{ env.COMMIT_SHA }})
+        files: |
+          release_files/*
