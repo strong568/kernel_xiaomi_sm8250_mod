@@ -76,16 +76,17 @@ jobs:
         cd $GITHUB_WORKSPACE
 
     # Cấu hình cho nhánh SukiSU
+    # Cấu hình cho nhánh SukiSU
     - name: Configure Root Solution for SukiSU
       if: matrix.su_type == 'sukisu'
       run: |
         # Đổi link tải SukiSU trong build.sh sang repo chính thức nhánh main
-        sed -i 's|curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*|curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main|g' build.sh
+        sed -i 's#curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*#curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main#g' build.sh
 
-        # Phân biệt tên file zip
-        sed -i 's/KSU_ZIP_STR=SukiSU-SUSFS/KSU_ZIP_STR=SukiSU-Ultra/g' build.sh
+        # Thay tên file zip phân biệt giữa 2 bản
+        sed -i 's#KSU_ZIP_STR=SukiSU-SUSFS#KSU_ZIP_STR=SukiSU-Ultra#g' build.sh
 
-        # Tải patch_linux mới nhất
+        # Tải patch_linux mới nhất cho SukiSU KPM
         LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
         wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
           FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
@@ -94,24 +95,31 @@ jobs:
         chmod +x /tmp/patch_linux
         cp /tmp/patch_linux ./patch_linux
 
-        # Vô hiệu hóa dòng wget tải bản cũ 0.12.0 trong build.sh (dùng luôn file patch_linux đã chuẩn bị)
-        sed -i 's|wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*|true|g' build.sh
+        # Ngăn build.sh tải đè bản cũ 0.12.0 (thay thế dòng wget thành true)
+        sed -i 's#wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*#true#g' build.sh
+
+        # Kiểm tra nội dung sau khi patch để đảm bảo cú pháp hợp lệ
+        echo "=== NỘI DUNG PATCH TRONG BUILD.SH ==="
+        grep -n "SukiSU-Ultra/main" build.sh || true
+
 
     # Cấu hình cho nhánh KernelSU-Next
     - name: Configure Root Solution for KernelSU-Next
       if: matrix.su_type == 'ksun'
       run: |
-        # Thay thế lệnh curl SukiSU bằng lệnh setup KernelSU-Next dev
+        # Đổi link tải SukiSU sang KernelSU-Next dev
         sed -i 's|curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*|curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev|g' build.sh
 
-        # Vô hiệu hóa toàn bộ khâu patch nhị phân của KernelPatch (tránh xóa nhầm Image gốc của KSU)
-        sed -i 's|\./patch_linux|true|g' build.sh
+        # Vô hiệu hóa toàn bộ khâu KernelPatch sau khi build
         sed -i 's|wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*|true|g' build.sh
+        sed -i 's|chmod +x patch_linux|true|g' build.sh
+        sed -i 's|\./patch_linux|true|g' build.sh
         sed -i 's|rm Image|true|g' build.sh
         sed -i 's|mv oImage Image|true|g' build.sh
 
         # Đổi tên hiển thị cho file zip
         sed -i 's/KSU_ZIP_STR=SukiSU-SUSFS/KSU_ZIP_STR=KernelSU-Next/g' build.sh
+
 
     - name: Build kernel
       run: |
