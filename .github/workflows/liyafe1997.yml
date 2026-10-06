@@ -56,7 +56,7 @@ jobs:
       run: |
         echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
         echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-        echo "BUILD_DATE=$(date +'\%Y\%m\%d_\%H\%M\%S')" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
 
     - name: Cache ccache
       uses: actions/cache@v4
@@ -192,7 +192,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: liyafe1997-${{ github.event.inputs.device }}-${{ env.BUILD_DATE }}
-        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' \vert{}\vert{} 'No-KSU' }}) -${{ env.BUILD_DATE }}"
+        name: "Kernel liyafe1997 ${{ github.event.inputs.device }} (${{ github.event.inputs.include_ksu == 'true' && 'KSU' || 'No-KSU' }}) -${{ env.BUILD_DATE }}"
         fail_on_unmatched_files: false
         body: |
           ### Thông tin bản dựng
