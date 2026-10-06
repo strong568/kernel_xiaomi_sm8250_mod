@@ -107,18 +107,23 @@ jobs:
     - name: Configure Root Solution for KernelSU-Next
       if: matrix.su_type == 'ksun'
       run: |
-        # Đổi link tải SukiSU sang KernelSU-Next dev
-        sed -i 's|curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*|curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev|g' build.sh
+        # Đổi link tải SukiSU sang KernelSU-Next dev (dùng delimiter #)
+        sed -i 's#curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*#curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev#g' build.sh
 
         # Vô hiệu hóa toàn bộ khâu KernelPatch sau khi build
-        sed -i 's|wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*|true|g' build.sh
-        sed -i 's|chmod +x patch_linux|true|g' build.sh
-        sed -i 's|\./patch_linux|true|g' build.sh
-        sed -i 's|rm Image|true|g' build.sh
-        sed -i 's|mv oImage Image|true|g' build.sh
+        sed -i 's#wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*#true#g' build.sh
+        sed -i 's#chmod +x patch_linux#true#g' build.sh
+        sed -i 's#\./patch_linux#true#g' build.sh
+        sed -i 's#rm Image#true#g' build.sh
+        sed -i 's#mv oImage Image#true#g' build.sh
 
         # Đổi tên hiển thị cho file zip
-        sed -i 's/KSU_ZIP_STR=SukiSU-SUSFS/KSU_ZIP_STR=KernelSU-Next/g' build.sh
+        sed -i 's#KSU_ZIP_STR=SukiSU-SUSFS#KSU_ZIP_STR=KernelSU-Next#g' build.sh
+
+        # Kiểm tra xác minh sau khi patch
+        echo "=== NỘI DUNG SETUP KSUN TRONG BUILD.SH ==="
+        grep -n "KernelSU-Next/dev" build.sh || true
+
 
 
     - name: Build kernel
