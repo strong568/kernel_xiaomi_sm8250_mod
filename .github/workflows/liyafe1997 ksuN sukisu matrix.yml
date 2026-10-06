@@ -103,13 +103,15 @@ jobs:
         # Thay thế lệnh curl SukiSU bằng lệnh setup KernelSU-Next dev
         sed -i 's|curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/.*setup.sh".*|curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" \| bash -s dev|g' build.sh
 
-        # Tắt việc chạy patch_linux của KernelPatch trong build.sh (ksuN không dùng patch_linux)
+        # Vô hiệu hóa toàn bộ quá trình patch nhị phân của KernelPatch (tránh xóa nhầm file Image gốc)
         sed -i 's|\./patch_linux|true|g' build.sh
         sed -i 's|wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/.*|true|g' build.sh
+        sed -i 's|rm Image|true|g' build.sh
         sed -i 's|mv oImage Image|true|g' build.sh
 
-        # Thay đổi tên file zip cho đúng KernelSU-Next
+        # Đổi tên hiển thị cho file zip
         sed -i 's/KSU_ZIP_STR=SukiSU-SUSFS/KSU_ZIP_STR=KernelSU-Next/g' build.sh
+
 
     - name: Build kernel
       run: |
