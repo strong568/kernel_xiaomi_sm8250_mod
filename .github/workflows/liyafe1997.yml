@@ -77,7 +77,41 @@ jobs:
         mkdir -p /home/runner/proton-clang
         ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
         cd $GITHUB_WORKSPACE
+        - name: Verify SuSFS Patches
+      if: ${{ github.event.inputs.include_ksu == 'true' }}
+      run: |
+        echo "================================================="
+        echo "   KIỂM TRA CÁC PATCH SUSFS ĐÃ ÁP DỤNG TRONG SOURCE"
+        echo "================================================="
 
+        # 1. Liệt kê các commit liên quan đến SuSFS trong git history
+        echo ">>> Danh sách commit SuSFS đã merge:"
+        git log --oneline --grep -i "susfs" -n 20 || echo "Không tìm thấy commit có từ khóa susfs"
+
+        # 2. Kiểm tra các file mã nguồn cốt lõi của SuSFS
+        echo -e "\n>>> Kiểm tra file mã nguồn SuSFS:"
+        found_files=0
+        for file in "fs/susfs.c" "include/linux/susfs.h" "fs/susfs_defs.h" "include/linux/sus_su.h"; do
+          if [ -f "$file" ]; then
+            echo "  [✓] Đã có file: $file"
+            found_files=$((found_files + 1))
+          else
+            echo "  [✗] Chưa có file: $file"
+          fi
+        done
+
+        # 3. Kiểm tra các macro/patch SuSFS được khai báo trong source
+        echo -e "\n>>> Kiểm tra cấu hình & phiên bản SuSFS:"
+        if [ -f "include/linux/susfs.h" ]; then
+          grep -E "SUSFS_VERSION|CONFIG_KSU_SUSFS" include/linux/susfs.h || true
+        fi
+
+        # 4. Kiểm tra xem defconfig hoặc Makefile đã kích hoạt SuSFS chưa
+        echo -e "\n>>> Trạng thái SuSFS trong Makefile / Kconfig:"
+        grep -rn "CONFIG_KSU_SUSFS" fs/ Makefile arch/arm64/configs/ 2>/dev/null | head -n 10 || echo "Chưa thấy config tĩnh trong source"
+
+        echo "================================================="
+        
     - name: Setup latest SukiSU KernelPatch
       if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
@@ -93,15 +127,30 @@ jobs:
 
         # Cấp quyền thực thi và đưa vào PATH toàn hệ thống lẫn thư mục hiện tại
         chmod +x /tmp/patch_linux
+        
+        # Lấy tag phiên bản từ release mới nhất
+        PATCH_VER=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.tag_name // "Latest"')
+        echo "================================================="
+        echo " [INFO] Phien ban patch_linux su dung: $PATCH_VER"
+        echo "================================================="
+        
         sudo cp /tmp/patch_linux /usr/local/bin/patch_linux
         cp /tmp/patch_linux ./patch_linux
 
         # Ngăn build.sh tải đè bản cũ nếu file đã tồn tại
         sed -i 's#wget.*SukiSU_KernelPatch_patch.*#echo "patch_linux already prepared"#' build.sh
 
-        # Kiểm tra nội dung build.sh để debug
-        echo "=== NỘI DUNG BUILD.SH TẠI DÒNG 96-102 ==="
+        # In kiem tra noi dung build.sh tai ca 2 vi tri
+        echo "=== NOI DUNG BUILD.SH TAI DONG 96-102 ==="
         sed -n '96,102p' build.sh
+
+        echo "=== NOI DUNG BUILD.SH TAI DONG 164-173 ==="
+        sed -n '164,173p' build.sh
+        
+        # Thong bao cac patch SuSFS hien co trong source
+        echo "=== DANH SACH COMMIT / PATCH SUSFS DA CO ==="
+        git log --oneline --grep -i "susfs" -n 15 || true
+        [ -f include/linux/susfs.h ] && grep -E "SUSFS_VERSION" include/linux/susfs.h || echo "Chua co include/linux/susfs.h"
 
 
     - name: Build kernel
