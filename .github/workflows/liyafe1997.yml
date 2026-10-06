@@ -78,18 +78,20 @@ jobs:
         ln -sf $HOME/toolchain/zyc-clang /home/runner/proton-clang/proton-clang-20210522
         cd $GITHUB_WORKSPACE
 
-    - name: Force update SukiSU KernelPatch to latest
+    - name: Setup latest SukiSU KernelPatch
+      if: ${{ github.event.inputs.include_ksu == 'true' }}
       run: |
+        # 1. Tải patch_linux mới nhất
         LATEST_URL="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux"
-        wget -q --content-disposition "$LATEST_URL" -O /tmp/patch_linux || {
+        wget -q --content-disposition "$LATEST_URL" -O ./patch_linux || {
           FALLBACK_URL=$(curl -sL https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest | jq -r '.assets[] | select(.name=="patch_linux") | .browser_download_url')
-          wget -q "$FALLBACK_URL" -O /tmp/patch_linux
+          wget -q "$FALLBACK_URL" -O ./patch_linux
         }
-        chmod +x /tmp/patch_linux
+        chmod +x ./patch_linux
 
-        find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
-        find . -name "patch_linux" -exec cp -f /tmp/patch_linux {} \;
-        cp /tmp/patch_linux ./patch_linux
+        # 2. Ngăn build.sh ghi đè hoặc tải lại bản cũ
+        sed -i '/SukiSU-Ultra.*kernel\/setup.sh/s/^/#/' build.sh
+        find . -type f -name "*.sh" -exec sed -i 's|https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/[^/ ]*/patch_linux|[ -f ./patch_linux ] \|\| wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux|g' {} +
 
     - name: Build kernel
       run: |
@@ -111,19 +113,16 @@ jobs:
       run: |
         mkdir -p release_files
 
-        # Đổi tên file zip thành định dạng có liyafe1997
         for f in $(find . -maxdepth 2 -name "*.zip"); do
           base_name=$(basename "$f")
           cp "$f" "release_files/Kernel_liyafe1997_${{ github.event.inputs.device }}_${base_name}"
         done
 
-        # Đổi tên Image và dtb kèm tiền tố liyafe1997
         [ -f out/arch/arm64/boot/Image ] && cp out/arch/arm64/boot/Image release_files/Image-liyafe1997-${{ github.event.inputs.device }} || true
         [ -f out/arch/arm64/boot/dtb ] && cp out/arch/arm64/boot/dtb release_files/dtb-liyafe1997-${{ github.event.inputs.device }} || true
         
         echo "Build completed for ${{ github.event.inputs.device }} by liyafe1997" > release_files/build_info.txt
 
-    # 1. Đưa file lên GitHub Actions Artifact
     - name: Upload Kernel to GitHub Actions Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -131,7 +130,6 @@ jobs:
         path: release_files/*
         retention-days: 7
 
-    # 2. Đưa file lên GitHub Release
     - name: Publish GitHub Release
       uses: softprops/action-gh-release@v2
       with:
