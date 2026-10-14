@@ -18,8 +18,10 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+    # Thay thế android-actions/setup-android bằng bước này
+    - name: Accept Android SDK Licenses
+      run: |
+        yes | sdkmanager --licenses || true
 
     - name: Clone and Build KittySU (${{ matrix.branch }})
       id: build
@@ -27,7 +29,6 @@ jobs:
       run: |
         git clone -b ${{ matrix.branch }} https://github.com/terebiko/KittiSU.git kitty
         cd kitty/manager
-        export ANDROID_HOME=$ANDROID_HOME
         chmod +x ./gradlew
         ./gradlew assembleRelease
         
@@ -43,8 +44,8 @@ jobs:
             cp "$file" "output_apks/${{ matrix.branch }}_${filename}"
           fi
         done
-        # Lưu version.txt để job release dùng
         cp kitty/version.txt output_apks/version_${{ matrix.branch }}.txt
+
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
@@ -69,11 +70,11 @@ jobs:
         DATE=$(TZ='Asia/Ho_Chi_Minh' date +'%d/%m/%Y')
         echo "date=$DATE" >> $GITHUB_OUTPUT
         
-        # Lấy version từ nhánh main (nếu có), nếu không lấy từ nhánh managerfix
+        # Lấy version từ nhánh main (nếu có), nếu không lấy từ nhánh dev
         if [ -f "./release_artifacts/version_main.txt" ]; then
           VERSION=$(cat ./release_artifacts/version_main.txt)
-        elif [ -f "./release_artifacts/version_managerfix.txt" ]; then
-          VERSION=$(cat ./release_artifacts/version_managerfix.txt)
+        elif [ -f "./release_artifacts/version_dev.txt" ]; then
+          VERSION=$(cat ./release_artifacts/version_dev.txt)
         else
           VERSION=$(date +'%Y%m%d_%H%M')
         fi
