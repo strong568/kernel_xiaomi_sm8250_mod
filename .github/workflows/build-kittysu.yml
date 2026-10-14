@@ -1,0 +1,131 @@
+name: Build KittySU
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [main, managerfix]
+
+    steps:
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Clone and Build KittySU (${{ matrix.branch }})
+      id: build
+      continue-on-error: true
+      run: |
+        git clone -b ${{ matrix.branch }} https://github.com/terebiko/KittiSU.git kitty
+        cd kitty/manager
+        export ANDROID_HOME=$ANDROID_HOME
+        chmod +x ./gradlew
+        ./gradlew assembleRelease
+        
+        cd ..
+        VERSION_NAME=$(git describe --tags --always)
+        echo "$VERSION_NAME" > version.txt
+        
+        cd ..
+        mkdir -p output_apks
+        for file in kitty/manager/app/build/outputs/apk/release/*.apk; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            cp "$file" "output_apks/${{ matrix.branch }}_${filename}"
+          fi
+        done
+        # Lưu version.txt để job release dùng
+        cp kitty/version.txt output_apks/version_${{ matrix.branch }}.txt
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: KittySU-APKs-${{ matrix.branch }}
+        path: output_apks/*
+
+  release:
+    runs-on: ubuntu-22.04
+    needs: build
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./release_artifacts
+        pattern: KittySU-APKs-*
+        merge-multiple: true
+
+    - name: Get Date and Version
+      id: vars
+      run: |
+        DATE=$(TZ='Asia/Ho_Chi_Minh' date +'%d/%m/%Y')
+        echo "date=$DATE" >> $GITHUB_OUTPUT
+        
+        # Lấy version từ nhánh main (nếu có), nếu không lấy từ nhánh managerfix
+        if [ -f "./release_artifacts/version_main.txt" ]; then
+          VERSION=$(cat ./release_artifacts/version_main.txt)
+        elif [ -f "./release_artifacts/version_managerfix.txt" ]; then
+          VERSION=$(cat ./release_artifacts/version_managerfix.txt)
+        else
+          VERSION=$(date +'%Y%m%d_%H%M')
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: Manager
+        name: "KittiSU Manager"
+        body: "Automated KittiSU build for main and managerfix branches."
+        draft: false
+        prerelease: false
+        files: ./release_artifacts/*.apk
+
+    - name: Upload to Telegram
+      env:
+        TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        CHANNEL_TG_RELEASE_ID: ${{ secrets.CHANNEL_TG_RELEASE_ID }}
+      run: |
+        if [ -z "$TG_TOKEN" ] || [ -z "$CHANNEL_TG_RELEASE_ID" ]; then
+          echo "Telegram credentials not provided. Skipping upload."
+          exit 0
+        fi
+        
+        VERSION="${{ steps.vars.outputs.version }}"
+        
+        for BRANCH in main managerfix; do
+          rm -rf kitty_$BRANCH
+          git clone --depth 3 -b $BRANCH https://github.com/terebiko/KittiSU.git kitty_$BRANCH || continue
+          LOG=$(cd kitty_$BRANCH && git log -2 --pretty=format:"- <code>%h</code> %s")
+          
+          shopt -s nullglob
+          files=( ./release_artifacts/${BRANCH}_*.apk )
+          if [ ${#files[@]} -eq 0 ]; then continue; fi
+          
+          CAPTION="🔥 <b>Nóng hổi vừa thổi vừa ăn, có manager mới nhánh ${BRANCH} của KittiSU ${VERSION}</b>"$'\n'"Chúng ta có các commit gần đây:"$'\n'"${LOG}"
+          # Escape quotes and newlines for JSON
+          CAPTION_JSON=$(echo "$CAPTION" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          
+          media_json="["
+          cmd=(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMediaGroup" -F chat_id="${CHANNEL_TG_RELEASE_ID}")
+          for i in "${!files[@]}"; do
+            file="${files[$i]}"
+            if [ $i -eq 0 ]; then
+              media_json+="{\"type\":\"document\", \"media\":\"attach://file${i}\", \"caption\":\"${CAPTION_JSON}\", \"parse_mode\":\"HTML\"}"
+            else
+              media_json+=", {\"type\":\"document\", \"media\":\"attach://file${i}\"}"
+            fi
+            cmd+=(-F "file${i}=@${file}")
+          done
+          media_json+="]"
+          cmd+=(-F "media=${media_json}")
+          "${cmd[@]}"
+        done
