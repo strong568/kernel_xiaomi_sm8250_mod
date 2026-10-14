@@ -18,34 +18,53 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
-    # Thay thế android-actions/setup-android bằng bước này
     - name: Accept Android SDK Licenses
       run: |
         yes | sdkmanager --licenses || true
 
     - name: Clone and Build KittySU (${{ matrix.branch }})
       id: build
-      continue-on-error: true
       run: |
         git clone -b ${{ matrix.branch }} https://github.com/terebiko/KittiSU.git kitty
         cd kitty/manager
         chmod +x ./gradlew
+        
+        # 1. Build bản Release chính thức
         ./gradlew assembleRelease
+        
+        # Lưu APK bản gốc
+        mkdir -p ../../output_apks
+        for file in app/build/outputs/apk/release/*.apk; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            cp "$file" "../../output_apks/${{ matrix.branch }}_${filename}"
+          fi
+        done
+
+        # 2. Tạo Package Name ngẫu nhiên để Spoof
+        RANDOM_SUFFIX=$(head /dev/urandom | tr -dc a-z0-9 | head -c 8)
+        SPOOF_PKG="com.google.android.ext.${RANDOM_SUFFIX}"
+        echo "Building Spoofed APK with ID: $SPOOF_PKG"
+
+        # Thay thế applicationId trong file cấu hình gradle
+        sed -i "s/applicationId = \".*\"/applicationId = \"$SPOOF_PKG\"/g" app/build.gradle.kts 2>/dev/null || true
+        sed -i "s/applicationId \".*\"/applicationId \"$SPOOF_PKG\"/g" app/build.gradle 2>/dev/null || true
+
+        # Build bản Spoof
+        ./gradlew assembleRelease
+
+        # Lưu APK bản Spoofed
+        for file in app/build/outputs/apk/release/*.apk; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            cp "$file" "../../output_apks/${{ matrix.branch }}_spoofed_${filename}"
+          fi
+        done
         
         cd ..
         VERSION_NAME=$(git describe --tags --always)
         echo "$VERSION_NAME" > version.txt
-        
-        cd ..
-        mkdir -p output_apks
-        for file in kitty/manager/app/build/outputs/apk/release/*.apk; do
-          if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            cp "$file" "output_apks/${{ matrix.branch }}_${filename}"
-          fi
-        done
-        cp kitty/version.txt output_apks/version_${{ matrix.branch }}.txt
-
+        cp version.txt ../output_apks/version_${{ matrix.branch }}.txt
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
@@ -70,7 +89,6 @@ jobs:
         DATE=$(TZ='Asia/Ho_Chi_Minh' date +'%d/%m/%Y')
         echo "date=$DATE" >> $GITHUB_OUTPUT
         
-        # Lấy version từ nhánh main (nếu có), nếu không lấy từ nhánh dev
         if [ -f "./release_artifacts/version_main.txt" ]; then
           VERSION=$(cat ./release_artifacts/version_main.txt)
         elif [ -f "./release_artifacts/version_dev.txt" ]; then
@@ -85,48 +103,7 @@ jobs:
       with:
         tag_name: Manager
         name: "KittiSU Manager"
-        body: "Automated KittiSU build for main and managerfix branches."
+        body: "Bản build tự động cho KittiSU (Gồm bản gốc và bản spoofed package)."
         draft: false
         prerelease: false
         files: ./release_artifacts/*.apk
-
-    - name: Upload to Telegram
-      env:
-        TG_TOKEN: ${{ secrets.TG_TOKEN }}
-        CHANNEL_TG_RELEASE_ID: ${{ secrets.CHANNEL_TG_RELEASE_ID }}
-      run: |
-        if [ -z "$TG_TOKEN" ] || [ -z "$CHANNEL_TG_RELEASE_ID" ]; then
-          echo "Telegram credentials not provided. Skipping upload."
-          exit 0
-        fi
-        
-        VERSION="${{ steps.vars.outputs.version }}"
-        
-        for BRANCH in main managerfix; do
-          rm -rf kitty_$BRANCH
-          git clone --depth 3 -b $BRANCH https://github.com/terebiko/KittiSU.git kitty_$BRANCH || continue
-          LOG=$(cd kitty_$BRANCH && git log -2 --pretty=format:"- <code>%h</code> %s")
-          
-          shopt -s nullglob
-          files=( ./release_artifacts/${BRANCH}_*.apk )
-          if [ ${#files[@]} -eq 0 ]; then continue; fi
-          
-          CAPTION="🔥 <b>Nóng hổi vừa thổi vừa ăn, có manager mới nhánh ${BRANCH} của KittiSU ${VERSION}</b>"$'\n'"Chúng ta có các commit gần đây:"$'\n'"${LOG}"
-          # Escape quotes and newlines for JSON
-          CAPTION_JSON=$(echo "$CAPTION" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          
-          media_json="["
-          cmd=(curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMediaGroup" -F chat_id="${CHANNEL_TG_RELEASE_ID}")
-          for i in "${!files[@]}"; do
-            file="${files[$i]}"
-            if [ $i -eq 0 ]; then
-              media_json+="{\"type\":\"document\", \"media\":\"attach://file${i}\", \"caption\":\"${CAPTION_JSON}\", \"parse_mode\":\"HTML\"}"
-            else
-              media_json+=", {\"type\":\"document\", \"media\":\"attach://file${i}\"}"
-            fi
-            cmd+=(-F "file${i}=@${file}")
-          done
-          media_json+="]"
-          cmd+=(-F "media=${media_json}")
-          "${cmd[@]}"
-        done
