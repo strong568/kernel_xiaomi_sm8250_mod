@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [main, managerfix]
+        branch: [main, dev]
 
     steps:
     - name: Set up JDK 21
