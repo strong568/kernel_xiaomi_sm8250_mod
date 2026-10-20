@@ -35,7 +35,7 @@ on:
           - miui
           - aosp
           - both
-          
+
 
 jobs:
   build:
@@ -96,26 +96,7 @@ jobs:
             # Khôi phục symlink cho Kbuild
             ln -sfn ../KernelSU/kernel drivers/kernelsu
 
-            # Kích hoạt các cờ tối ưu hóa SuSFS chuyên dụng cho VNeID & Banking (MBBank)
-            if [ "$VARIANT" = "susfs" ]; then
-              echo "[+] Applying SuSFS build flags for maximum stealth (VNeID/MBBank bypass)..."
-              
-              # Tự động bật các macro cốt lõi của SuSFS trong defconfig hoặc source nếu có file cấu hình
-              CONFIG_FILE=$(find arch/arm64/configs -name "*defconfig" | head -n 1)
-              if [ -f "$CONFIG_FILE" ]; then
-                echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS_AUTOMMOUNT_ANY_KSU_FILES=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$CONFIG_FILE"
-                echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$CONFIG_FILE"
-                echo "[+] Injected SuSFS flags into $CONFIG_FILE"
-              fi
-            else
-              echo "[-] User selected NoSuSFS mode."
-            fi
+
           fi
 
           # Cung cấp AnyKernel template từ gốc repo[span_1](start_span)[span_1](end_span)
