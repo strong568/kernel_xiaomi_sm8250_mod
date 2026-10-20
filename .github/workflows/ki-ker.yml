@@ -114,16 +114,20 @@ jobs:
             done
           fi
 
-          # 3. Tạo file bbg_tracing.h an toàn (Không xóa thư mục gốc)
+          # 3. Tạo file bbg_tracing.h an toàn
           mkdir -p security/selinux/include
-          cat << 'EOF' > security/selinux/include/bbg_tracing.h
-          #ifndef _BBG_TRACING_H
-          #define _BBG_TRACING_H
-          static inline void bbg_JvmCheck(void) {}
-          static inline int bbg_process_setexec(void) { return 0; }
-          #endif
-          EOF
-          cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h 2>/dev/null || true
+          mkdir -p include/linux
+          
+          echo '#ifndef _BBG_TRACING_H' > security/selinux/include/bbg_tracing.h
+          echo '#define _BBG_TRACING_H' >> security/selinux/include/bbg_tracing.h
+          echo 'static inline void bbg_JvmCheck(void) {}' >> security/selinux/include/bbg_tracing.h
+          echo 'static inline int bbg_process_setexec(void) { return 0; }' >> security/selinux/include/bbg_tracing.h
+          echo '#endif' >> security/selinux/include/bbg_tracing.h
+
+          if [ -d "include/linux" ]; then
+            cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h || true
+          fi
+
 
 
           # 4. Quét Kconfig an toàn
