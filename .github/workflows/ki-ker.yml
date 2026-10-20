@@ -99,22 +99,46 @@ jobs:
             ln -sfn ../KernelSU/kernel drivers/kernelsu
           fi
 
-          # Tự động quét toàn bộ source kernel để tìm mọi lệnh source ".../Kconfig" bị thiếu file hoặc đứt symlink
-          echo "[+] Scanning for broken Kconfig references across the entire kernel tree..."
-          grep -rnE '^[[:space:]]*source[[:space:]]+"[^"]+Kconfig"' . 2>/dev/null | while IFS=: read -r file line content; do
-            target=$(echo "$content" | sed -E 's/^[[:space:]]*source[[:space:]]+"([^"]+)".*/\1/')
-            if [ -n "$target" ] && [ ! -f "$target" ]; then
-              echo "[!] Fixing missing Kconfig: $target (referenced in $file)"
-              target_dir=$(dirname "$target")
-              # Nếu target_dir đang là một broken symlink hoặc file rác thì xóa đi để tạo thư mục thật
-              if [ -L "$target_dir" ] || [ -f "$target_dir" ]; then
-                rm -rf "$target_dir"
-              fi
-              mkdir -p "$target_dir"
-              touch "$target"
-              touch "$target_dir/Makefile"
-            fi
-          done
+          # Dùng Python quét toàn bộ cây Kconfig để xóa hoặc tạo giả các file Kconfig bị thiếu (nomount, baseband-guard, v.v.)
+          python3 - << 'EOF'
+          import os, re, shutil
+
+          pattern = re.compile(r'^\s*source\s+["\']?([^"\'\s]+Kconfig[^"\'\s]*)["\']?')
+
+          for root, dirs, files in os.walk('.'):
+              if '.git' in dirs:
+                  dirs.remove('.git')
+              for f in files:
+                  if f.startswith('Kconfig'):
+                      kpath = os.path.join(root, f)
+                      try:
+                          with open(kpath, 'r', encoding='utf-8', errors='ignore') as fp:
+                              lines = fp.readlines()
+                      except Exception:
+                          continue
+
+                      new_lines = []
+                      modified = False
+                      for line in lines:
+                          m = pattern.match(line)
+                          if m:
+                              target = m.group(1)
+                              # Nếu file Kconfig được gọi không tồn tại thực sự
+                              if not os.path.isfile(target):
+                                  print(f"[!] Removing broken Kconfig reference '{target}' in {kpath}")
+                                  modified = True
+                                  # Xóa luôn dòng source bị lỗi khỏi file Kconfig
+                                  continue
+                          new_lines.append(line)
+
+                      if modified:
+                          with open(kpath, 'w', encoding='utf-8') as fp:
+                              fp.writelines(new_lines)
+          EOF
+
+          # Dọn dẹp luôn trong Makefile nếu có gọi đến nomount hoặc baseband-guard bị thiếu
+          sed -i '/nomount/d' fs/Makefile 2>/dev/null || true
+          sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
 
           # Đảm bảo AnyKernel template tồn tại
           mkdir -p anykernel_template
@@ -125,7 +149,6 @@ jobs:
             cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
             rm -rf /tmp/ak3
           fi
-
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
