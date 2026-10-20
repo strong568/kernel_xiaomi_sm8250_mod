@@ -151,7 +151,7 @@ jobs:
       - name: Build Kernel Images
         run: |
           TARGET_DEVICE="${{ github.event.inputs.target_device }}"
-          ROOT_ENGINE="${{ github.event.inputs.root_engine }}"
+          FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           USE_SUSFS="${{ github.event.inputs.enable_susfs }}"
           TARGET_OS="${{ github.event.inputs.target_os }}"
 
@@ -175,9 +175,8 @@ jobs:
 
           mkdir -p build_artifacts/aosp build_artifacts/miui
 
-          # Cấu hình cờ Root & SuSFS ẩn Root Full
           apply_ksu_susfs_config() {
-            if [ "$ROOT_ENGINE" != "noksu" ]; then
+            if [[ "$FLAVOR" != "noksu" ]]; then
               scripts/config --file out/.config \
                 -e KSU \
                 -e THREAD_INFO_IN_TASK \
@@ -186,8 +185,7 @@ jobs:
                 -e KSU_LSM_SECURITY_HOOKS \
                 -e KSU_MULTI_MANAGER_SUPPORT
 
-              if [ "$USE_SUSFS" = "true" ]; then
-                echo "Enabling Full SuSFS Stealth configs..."
+              if [[ "$USE_SUSFS" == "true" ]]; then
                 scripts/config --file out/.config \
                   -e KSU_SUSFS \
                   -e KSU_SUSFS_SUS_PATH \
@@ -208,37 +206,35 @@ jobs:
             fi
           }
 
-          # 1. Build AOSP (nếu chọn aosp hoặc both)
-          if [ "$TARGET_OS" == "aosp" ] \vert{}\vert{} [ "$TARGET_OS" == "both" ]; then
-            echo ">>> Building AOSP Kernel Image <<<"
+          # 1. Build AOSP (dùng [[ ... ]] để tránh lỗi 'too many arguments')
+          if [[ "$TARGET_OS" == "aosp" || "$TARGET_OS" == "both" ]]; then
+            echo ">>> Building AOSP Kernel <<<"
             rm -rf out/
             make $MAKE_ARGS "${TARGET_DEVICE}_defconfig"
             apply_ksu_susfs_config
             make $MAKE_ARGS olddefconfig
             make $MAKE_ARGS -j$(nproc --all)
 
-            # Build DTB Kona Extreme 683 MHz
-            if [ -f "arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi" ]; then
+            if [[ -f "arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi" ]]; then
               cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
             fi
             make $MAKE_ARGS dtbs -j$(nproc --all)
 
             cp out/arch/arm64/boot/Image build_artifacts/aosp/Image
-            if [ -f "out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
+            if [[ -f "out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]]; then
               cp out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb build_artifacts/aosp/dtb
             else
               find out/arch/arm64/boot/dts -name '*.dtb' | sort | head -n 1 | xargs cat > build_artifacts/aosp/dtb
             fi
           fi
 
-          # 2. Build MIUI/HyperOS/ColorOS (nếu chọn miui, coloros hoặc both)
-          if [ "$TARGET_OS" == "miui" ] || [ "$TARGET_OS" == "coloros" ] \vert{}\vert{} [ "$TARGET_OS" == "both" ]; then
-            echo ">>> Building MIUI / HyperOS Kernel Image <<<"
+          # 2. Build MIUI/HyperOS
+          if [[ "$TARGET_OS" == "miui" || "$TARGET_OS" == "coloros" || "$TARGET_OS" == "both" ]]; then
+            echo ">>> Building MIUI / HyperOS Kernel <<<"
             rm -rf out/
             make $MAKE_ARGS "${TARGET_DEVICE}_defconfig"
             apply_ksu_susfs_config
 
-            # Tinh chỉnh tương thích MIUI / HyperOS
             scripts/config --file out/.config \
               -e EROFS_FS -e EROFS_FS_XATTR -e EROFS_FS_POSIX_ACL -e EROFS_FS_SECURITY -e EROFS_FS_ZIP \
               -d PSTORE_COMPRESS --set-str STATIC_USERMODEHELPER_PATH "" \
@@ -248,13 +244,13 @@ jobs:
             make $MAKE_ARGS olddefconfig
             make $MAKE_ARGS -j$(nproc --all)
 
-            if [ -f "arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi" ]; then
+            if [[ -f "arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi" ]]; then
               cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
             fi
             make $MAKE_ARGS dtbs -j$(nproc --all)
 
             cp out/arch/arm64/boot/Image build_artifacts/miui/Image
-            if [ -f "out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
+            if [[ -f "out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]]; then
               cp out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb build_artifacts/miui/dtb
             else
               find out/arch/arm64/boot/dts -name '*.dtb' | sort | head -n 1 | xargs cat > build_artifacts/miui/dtb
@@ -268,13 +264,13 @@ jobs:
 
           mkdir -p anykernel_template/kernels/aosp anykernel_template/kernels/miui anykernel_template/kernels/coloros
 
-          if [ "$TARGET_OS" == "aosp" ]; then
+          if [[ "$TARGET_OS" == "aosp" ]]; then
             cp build_artifacts/aosp/Image anykernel_template/kernels/aosp/Image
             cp build_artifacts/aosp/dtb anykernel_template/kernels/aosp/dtb
-          elif [ "$TARGET_OS" == "miui" ]; then
+          elif [[ "$TARGET_OS" == "miui" ]]; then
             cp build_artifacts/miui/Image anykernel_template/kernels/miui/Image
             cp build_artifacts/miui/dtb anykernel_template/kernels/miui/dtb
-          elif [ "$TARGET_OS" == "coloros" ]; then
+          elif [[ "$TARGET_OS" == "coloros" ]]; then
             cp build_artifacts/miui/Image anykernel_template/kernels/coloros/Image
             cp build_artifacts/miui/dtb anykernel_template/kernels/coloros/dtb
           else
@@ -286,13 +282,13 @@ jobs:
             cp build_artifacts/miui/dtb anykernel_template/kernels/coloros/dtb
           fi
 
-          # Tên file zip đúng quy chuẩn
           ZIP_NAME="KiKernel-SM8250-${BUILD_DATE}-${TARGET_DEVICE}-${TAG_ROOT}-${DRIVER_VER}-${TARGET_OS}.zip"
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
           cd anykernel_template
           zip -r9 "../${ZIP_NAME}" ./* -x .git .gitignore "ak3_base/*"
           cd ..
+
 
       - name: Download Root Engine Manager
         run: |
