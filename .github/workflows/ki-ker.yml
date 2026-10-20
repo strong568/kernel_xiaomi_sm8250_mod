@@ -137,6 +137,7 @@ jobs:
           print("[+] Successfully created bbg_tracing.h")
           EOF
 
+
           # 4. Quét Kconfig an toàn
           python3 - << 'EOF'
           import os, re
