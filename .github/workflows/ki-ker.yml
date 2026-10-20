@@ -1,4 +1,4 @@
-name: Ki-Kernel v1.4.1
+name: Build Ki-Kernel v1.4.1
 
 on:
   workflow_dispatch:
@@ -69,11 +69,13 @@ jobs:
           ln -sfn "$HOME/zyc-clang" "$HOME/proton-clang/proton-clang-20210522"
           echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
-      - name: Setup KernelSU & Auto-Fix All Missing Kconfigs
+      - name: Setup KernelSU & Auto-Fix Missing Headers/Kconfigs
         run: |
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           VARIANT="${{ github.event.inputs.variant }}"
+          # Xóa cả cấu hình submodule .gitmodules nếu có để tránh lỗi git cleanup cuối job
           rm -rf KernelSU drivers/kernelsu
+          git config -f .gitmodules --remove-section submodule.KernelSU 2>/dev/null || true
 
           if [ "$FLAVOR" = "noksu" ]; then
             echo "[-] Building in Noksu mode (No KernelSU)"
@@ -103,16 +105,28 @@ jobs:
             fi
 
             # 1. Sửa lỗi BakaSU / SukiSU chặn build tại susfs_compat.mk ("Please wait susfs update.. Stop.")
-            find KernelSU -name "*.mk" -o -name "Makefile" | xargs sed -i 's/\$(error /$(warning /g' 2>/dev/null || true
+            find KernelSU -type f \( -name "*.mk" -o -name "Makefile" \) -exec sed -i 's/\$(error /$(warning /g' {} + 2>/dev/null || true
 
-            # 2. Xử lý cảnh báo KSU_MANUAL_HOOK guard trong drivers/input/input.c cho BakaSU (susfs_inline)
-            if [ -f "drivers/input/input.c" ]; then
-              sed -i 's/#ifdef CONFIG_KSU_MANUAL_HOOK/#if defined(CONFIG_KSU) || defined(CONFIG_KSU_MANUAL_HOOK)/g' drivers/input/input.c
-              sed -i 's/#if defined(CONFIG_KSU_MANUAL_HOOK)/#if defined(CONFIG_KSU) || defined(CONFIG_KSU_MANUAL_HOOK)/g' drivers/input/input.c
-            fi
+            # 2. Chuyển toàn bộ CONFIG_KSU_MANUAL_HOOK sang CONFIG_KSU để BakaSU (susfs_inline) nhận đủ hook và hết cảnh báo
+            for hook_file in fs/exec.c fs/open.c fs/read_write.c fs/stat.c fs/namei.c drivers/input/input.c drivers/tty/pty.c; do
+              if [ -f "$hook_file" ]; then
+                sed -i 's/CONFIG_KSU_MANUAL_HOOK/CONFIG_KSU/g' "$hook_file"
+              fi
+            done
           fi
 
-          # Quét Kconfig an toàn: BỎ QUA các dòng chứa biến môi trường ($) như arch/$SRCARCH/Kconfig
+          # 3. Khắc phục triệt để lỗi "fatal error: 'bbg_tracing.h' file not found" trong security/selinux
+          mkdir -p security/selinux/include
+          cat << 'EOF' > security/selinux/include/bbg_tracing.h
+          #ifndef _BBG_TRACING_H
+          #define _BBG_TRACING_H
+          static inline void bbg_JvmCheck(void) {}
+          static inline int bbg_process_setexec(void) { return 0; }
+          #endif
+          EOF
+          cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h 2>/dev/null || true
+
+          # 4. Quét Kconfig an toàn: BỎ QUA các dòng chứa biến môi trường ($) như arch/$SRCARCH/Kconfig
           python3 - << 'EOF'
           import os, re
 
@@ -136,7 +150,6 @@ jobs:
                           m = pattern.match(line)
                           if m:
                               target = m.group(1)
-                              # Không đụng vào các đường dẫn chứa biến như $SRCARCH
                               if '$' not in target and not os.path.isfile(target):
                                   print(f"[!] Removing broken Kconfig reference '{target}' in {kpath}")
                                   modified = True
@@ -151,6 +164,7 @@ jobs:
           # Dọn dẹp Makefile nếu có gọi đến nomount hoặc baseband-guard bị thiếu
           sed -i '/nomount/d' fs/Makefile 2>/dev/null || true
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
+          sed -i '/bbg/d' security/selinux/Makefile 2>/dev/null || true
 
           # Đảm bảo AnyKernel template tồn tại
           mkdir -p anykernel_template
@@ -181,7 +195,7 @@ jobs:
             APK_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
             APK_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
 
-            if [ -z "$APK_URL" ] \vert{}\vert{} [ "$APK_URL" = "null" ]; then
+            if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
               echo "[-] Not found in latest release, checking all releases/pre-releases..."
               ALL_RELEASES=$(curl -sL "https://api.github.com/repos/$REPO/releases")
               APK_URL=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
@@ -241,7 +255,7 @@ jobs:
           fi
 
           # Thay thế tiền tố mặc định (KSU+SUSFS / KSU / NOKSU) của build.sh bằng tên KSU cụ thể + bản SuSFS
-          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP" \vert{} sed "s/^[^_]*_/${CUSTOM_TAG}_/")
+          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP" | sed "s/^[^_]*_/${CUSTOM_TAG}_/")
           if [ "$ORIGINAL_ZIP" != "$NEW_ZIP_NAME" ]; then
             mv "$ORIGINAL_ZIP" "$NEW_ZIP_NAME"
           fi
