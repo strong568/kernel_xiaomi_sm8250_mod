@@ -114,18 +114,16 @@ jobs:
             done
           fi
 
-          # 3. Tạo file bbg_tracing.h an toàn qua thư mục /tmp
-          rm -f security/selinux/include
-          mkdir -p /tmp/bbg_inc
-          cat << 'EOF' > /tmp/bbg_inc/bbg_tracing.h
+          # 3. Tạo file bbg_tracing.h an toàn (Dùng rm -rf để tránh lỗi Is a directory)
+          rm -rf security/selinux/include
+          mkdir -p security/selinux/include
+          cat << 'EOF' > security/selinux/include/bbg_tracing.h
           #ifndef _BBG_TRACING_H
           #define _BBG_TRACING_H
           static inline void bbg_JvmCheck(void) {}
           static inline int bbg_process_setexec(void) { return 0; }
           #endif
           EOF
-          mkdir -p security/selinux/include
-          cp -f /tmp/bbg_inc/bbg_tracing.h security/selinux/include/bbg_tracing.h
           cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h 2>/dev/null || true
 
           # 4. Quét Kconfig an toàn
@@ -167,16 +165,11 @@ jobs:
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
           sed -i '/bbg/d' security/selinux/Makefile 2>/dev/null || true
 
-          # Đảm bảo AnyKernel template tồn tại
+          # 5. Sử dụng sẵn AnyKernel template trong repo (Không clone ngoài nữa)
           mkdir -p anykernel_template
-          if [ -f "anykernel.sh" ]; then
+          if [ -f "anykernel.sh" ] && [ ! -f "anykernel_template/anykernel.sh" ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
-          elif [ ! -f "anykernel_template/anykernel.sh" ]; then
-            git clone https://github.com/AstideLabs/AnyKernel3 -b kona --single-branch --depth=1 /tmp/ak3
-            cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
-            rm -rf /tmp/ak3
           fi
-
 
 
       - name: Fetch Latest KernelSU Manager APK
