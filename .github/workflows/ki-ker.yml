@@ -69,7 +69,7 @@ jobs:
           ln -sfn $HOME/zyc-clang$HOME/proton-clang/proton-clang-20210522
           echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
-      - name: Setup KernelSU & Fix Missing Kconfig
+      - name: Setup KernelSU & Auto-Fix All Missing Kconfigs
         run: |
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           VARIANT="${{ github.event.inputs.variant }}"
@@ -99,15 +99,22 @@ jobs:
             ln -sfn ../KernelSU/kernel drivers/kernelsu
           fi
 
-          # Xử lý triệt để lỗi fs/nomount/Kconfig bị broken symlink hoặc thiếu file
-          if grep -q "fs/nomount/Kconfig" fs/Kconfig 2>/dev/null; then
-            if [ ! -f "fs/nomount/Kconfig" ]; then
-              echo "[!] Fixing broken fs/nomount..."
-              rm -rf fs/nomount
-              sed -i '/fs\/nomount\/Kconfig/d' fs/Kconfig
-              sed -i '/nomount/d' fs/Makefile 2>/dev/null || true
+          # Tự động quét toàn bộ source kernel để tìm mọi lệnh source ".../Kconfig" bị thiếu file hoặc đứt symlink
+          echo "[+] Scanning for broken Kconfig references across the entire kernel tree..."
+          grep -rnE '^[[:space:]]*source[[:space:]]+"[^"]+Kconfig"' . 2>/dev/null | while IFS=: read -r file line content; do
+            target=$(echo "$content" | sed -E 's/^[[:space:]]*source[[:space:]]+"([^"]+)".*/\1/')
+            if [ -n "$target" ] && [ ! -f "$target" ]; then
+              echo "[!] Fixing missing Kconfig: $target (referenced in $file)"
+              target_dir=$(dirname "$target")
+              # Nếu target_dir đang là một broken symlink hoặc file rác thì xóa đi để tạo thư mục thật
+              if [ -L "$target_dir" ] || [ -f "$target_dir" ]; then
+                rm -rf "$target_dir"
+              fi
+              mkdir -p "$target_dir"
+              touch "$target"
+              touch "$target_dir/Makefile"
             fi
-          fi
+          done
 
           # Đảm bảo AnyKernel template tồn tại
           mkdir -p anykernel_template
