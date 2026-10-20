@@ -1,0 +1,89 @@
+name: Build Ki-Kernel v141
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_device:
+        description: 'Target Device'
+        required: true
+        default: 'munch'
+      variant:
+        description: 'Variant (ksu, nosusfs, noksu)'
+        required: true
+        default: 'ksu'
+      target_os:
+        description: 'Target OS (miui, aosp, both, all)'
+        required: true
+        default: 'all'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          ref: ki-kernel-clean-stable
+          submodules: false
+          fetch-depth: 1
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev crossbuild-essential-arm64 libarchive-tools zip unzip tar wget git curl python3 libzstd-dev
+
+      - name: Setup ZyCromerZ Clang 16
+        run: |
+          mkdir -p $HOME/zyc-clang
+          echo 'Downloading ZyCromerZ Clang 16...'
+          curl -sL "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz" -o /tmp/zyc-clang.tar.gz
+          tar -xzf /tmp/zyc-clang.tar.gz -C $HOME/zyc-clang/
+          rm -f /tmp/zyc-clang.tar.gz
+
+          mkdir -p $HOME/proton-clang
+          ln -sfn $HOME/zyc-clang$HOME/proton-clang/proton-clang-20210522
+          echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
+
+      - name: Setup KernelSU & AnyKernel Template
+        run: |
+          rm -rf KernelSU drivers/kernelsu
+          
+          # Clone the Resukisu BakaSU, public KernelSU repository
+          echo 'Cloning official KernelSU...'
+          git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
+          
+          # Restore the expected symlink for Kbuild
+          ln -sfn ../KernelSU/kernel drivers/kernelsu
+
+          # Provide AnyKernel template
+          mkdir -p anykernel_template
+          if [ -f anykernel.sh ]; then
+            cp -f anykernel.sh anykernel_template/anykernel.sh
+          fi
+
+      - name: Run Ki-Kernel Build Script
+        run: |
+          chmod +x build.sh
+          bash build.sh ${{ github.event.inputs.target_device }} ${{ github.event.inputs.variant }}${{ github.event.inputs.target_os }}
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ki-Kernel-v141-${{ github.event.inputs.target_device }}-${{ github.event.inputs.target_os }}
+          path: ./*.zip
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./*.zip
+          tag_name: v1.4.1-${{ github.event.inputs.target_device }}-${{ github.event.inputs.variant }}-${{ github.event.inputs.target_os }}-${{ github.run_number }}
+          name: "Ki-Kernel v1.4.1 (${{ github.event.inputs.target_device }} - ${{ github.event.inputs.variant }} -${{ github.event.inputs.target_os }})"
+          body: |
+            - **Target Device**: `${{ github.event.inputs.target_device }}`
+            - **Variant**: `${{ github.event.inputs.variant }}` (ReSukiSU / BakaSU)
+            - **Target OS**: `${{ github.event.inputs.target_os }}`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
