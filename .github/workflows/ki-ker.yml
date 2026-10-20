@@ -114,8 +114,7 @@ jobs:
             done
           fi
 
-          # 3. Tạo file bbg_tracing.h an toàn
-          rm -rf security/selinux/include
+          # 3. Tạo file bbg_tracing.h an toàn (Không xóa thư mục gốc)
           mkdir -p security/selinux/include
           cat << 'EOF' > security/selinux/include/bbg_tracing.h
           #ifndef _BBG_TRACING_H
@@ -125,6 +124,7 @@ jobs:
           #endif
           EOF
           cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h 2>/dev/null || true
+
 
           # 4. Quét Kconfig an toàn
           python3 - << 'EOF'
