@@ -1,0 +1,203 @@
+name: Build Ki-Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_device:
+        description: 'Target Device'
+        required: true
+        default: 'munch'
+      ksu_flavor:
+        description: 'Chọn loại KSU hoặc Noksu'
+        required: true
+        type: choice
+        default: 'bakasu'
+        options:
+          - kernelsu-next
+          - sukisu-ultra
+          - bakasu
+          - midori
+          - noksu
+      variant:
+        description: 'Chọn chế độ SuSFS (Chỉ áp dụng khi chọn KSU)'
+        required: true
+        type: choice
+        default: 'susfs'
+        options:
+          - susfs
+          - nosusfs
+      target_os:
+        description: 'Target OS (miui, aosp, both)'
+        required: true
+        type: choice
+        default: 'both'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          ref: ki-kernel-clean-stable
+          submodules: false
+          fetch-depth: 1
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
+            crossbuild-essential-arm64 libarchive-tools zip unzip tar wget git curl python3 libzstd-dev jq
+
+      - name: Setup ZyCromerZ Clang 16
+        run: |
+          mkdir -p $HOME/zyc-clang
+          echo 'Downloading ZyCromerZ Clang 16...'
+          curl -sL "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz" -o /tmp/zyc-clang.tar.gz
+          tar -xzf /tmp/zyc-clang.tar.gz -C $HOME/zyc-clang/
+          rm -f /tmp/zyc-clang.payload.tar.gz || true
+          tar -xzf /tmp/zyc-clang.tar.gz -C $HOME/zyc-clang/
+          rm -f /tmp/zyc-clang.tar.gz
+
+          mkdir -p $HOME/proton-clang
+          ln -sfn $HOME/zyc-clang $HOME/proton-clang/proton-clang-20210522
+          echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
+
+      - name: Setup KernelSU & Variant / Noksu
+        run: |
+          FLAVOR="${{ github.event.inputs.ksu_flavor }}"
+          VARIANT="${{ github.event.inputs.variant }}"
+          rm -rf KernelSU drivers/kernelsu
+
+          if [ "$FLAVOR" = "noksu" ]; then
+            echo "[-] Building without KernelSU (Noksu mode)"
+          else
+            echo "[+] Setting up KernelSU flavor: $FLAVOR (Variant: $VARIANT)"
+            case "$FLAVOR" in
+              kernelsu-next)
+                git clone https://github.com/KernelSU-Next/KernelSU-Next.git -b legacy KernelSU
+                ;;
+              sukisu-ultra)
+                git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git -b main KernelSU
+                ;;
+              bakasu)
+                git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
+                ;;
+              midori)
+                git clone https://github.com/midori01/KernelSU.git -b main KernelSU
+                ;;
+            esac
+            
+            # Khôi phục symlink cho Kbuild
+            ln -sfn ../KernelSU/kernel drivers/kernelsu
+
+            # Kích hoạt các cờ tối ưu hóa SuSFS chuyên dụng cho VNeID & Banking (MBBank)
+            if [ "$VARIANT" = "susfs" ]; then
+              echo "[+] Applying SuSFS build flags for maximum stealth (VNeID/MBBank bypass)..."
+              
+              # Tự động bật các macro cốt lõi của SuSFS trong defconfig hoặc source nếu có file cấu hình
+              CONFIG_FILE=$(find arch/arm64/configs -name "*defconfig" | head -n 1)
+              if [ -f "$CONFIG_FILE" ]; then
+                echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS_AUTOMMOUNT_ANY_KSU_FILES=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$CONFIG_FILE"
+                echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$CONFIG_FILE"
+                echo "[+] Injected SuSFS flags into $CONFIG_FILE"
+              fi
+            else
+              echo "[-] User selected NoSuSFS mode."
+            fi
+          fi
+
+          # Cung cấp AnyKernel template từ gốc repo[span_1](start_span)[span_1](end_span)
+          mkdir -p anykernel_template
+          if [ -f anykernel.sh ]; then
+            cp -f anykernel.sh anykernel_template/anykernel.sh
+          fi
+
+      - name: Fetch Latest KernelSU Manager APK
+        run: |
+          mkdir -p manager_output
+          FLAVOR="${{ github.event.inputs.ksu_flavor }}"
+          
+          if [ "$FLAVOR" != "noksu" ]; then
+            REPO=""
+            case "$FLAVOR" in
+              kernelsu-next) REPO="KernelSU-Next/KernelSU-Next" ;;
+              sukisu-ultra)  REPO="SukiSU-Ultra/SukiSU-Ultra" ;;
+              bakasu)        REPO="Baka-SU/BakaSU" ;;
+              midori)        REPO="midori01/KernelSU" ;;
+            esac
+
+            echo "Fetching latest Manager APK from $REPO..."
+            RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+            APK_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
+            
+            if [ -n "$APK_URL" ] && [ "$APK_URL" != "null" ]; then
+              wget -q "$APK_URL" -O manager_output/manager.apk
+              echo "[+] Downloaded manager successfully from Release."
+            else
+              echo "[-] Release APK not found."
+            fi
+          fi
+
+      - name: Run Ki-Kernel Build Script
+        run: |
+          chmod +x build.sh
+          bash build.sh ${{ github.event.inputs.target_device }} ${{ github.event.inputs.ksu_flavor }} ${{ github.event.inputs.variant }} ${{ github.event.inputs.target_os }}
+
+      - name: Format Output Names with SuSFS Version & Flavor
+        run: |
+          FLAVOR="${{ github.event.inputs.ksu_flavor }}"
+          VARIANT="${{ github.event.inputs.variant }}"
+          DEVICE="${{ github.event.inputs.target_device }}"
+          
+          if [ "$FLAVOR" = "noksu" ]; then
+            TAG="noksu"
+          else
+            if [ "$VARIANT" = "susfs" ]; then
+              SUSFS_VERSION=""
+              if [ -f "include/linux/susfs.h" ]; then
+                SUSFS_VERSION=$(grep -E "define SUSFS_VERSION" include/linux/susfs.h | cut -d'"' -f2)
+              fi
+              [ -z "$SUSFS_VERSION" ] && SUSFS_VERSION="susfs-unknown"
+              TAG="${FLAVOR}-su_${SUSFS_VERSION}-stealth"
+            else
+              TAG="${FLAVOR}-nosusfs"
+            fi
+          fi
+
+          ORIGINAL_ZIP=$(ls *.zip | head -n 1)
+          NEW_ZIP_NAME="Ki-Kernel-v1.3-${DEVICE}-${TAG}.zip"
+          mv "$ORIGINAL_ZIP" "$NEW_ZIP_NAME"
+          
+          echo "FINAL_ZIP_NAME=$NEW_ZIP_NAME" >> $GITHUB_ENV
+          echo "[+] Final Zip renamed to: $NEW_ZIP_NAME"
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FINAL_ZIP_NAME }}
+          path: |
+            ./*.zip
+            manager_output/*.apk
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./*.zip
+            manager_output/*.apk
+          tag_name: v1.3-${{ env.FINAL_ZIP_NAME }}-${{ github.run_number }}
+          name: "Ki-Kernel v1.3 - ${{ env.FINAL_ZIP_NAME }}"
+          body: |
+            - **Target Device**: ${{ github.event.inputs.target_device }}
+            - **KSU Flavor**: ${{ github.event.inputs.ksu_flavor }}
+            - **Variant**: ${{ github.event.inputs.variant }} (Stealth SuSFS for VNeID/MBBank)
+            - **Target OS**: ${{ github.event.inputs.target_os }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
