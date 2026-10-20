@@ -1,10 +1,10 @@
-name: Build Ki-Kernel
+name: Build Ki-Kernel v1.4.1
 
 on:
   workflow_dispatch:
     inputs:
       target_device:
-        description: 'Target Device'
+        description: 'Target Device (munch, alioth, apollo, lmi, umi...)'
         required: true
         default: 'munch'
       ksu_flavor:
@@ -13,13 +13,13 @@ on:
         type: choice
         default: 'resukisu'
         options:
+          - resukisu
           - kernelsu-next
           - sukisu-ultra
-          - resukisu
           - midori
           - noksu
       variant:
-        description: 'Chọn chế độ SuSFS (Chỉ áp dụng khi chọn KSU)'
+        description: 'Chế độ SuSFS (Chỉ áp dụng khi chọn KSU)'
         required: true
         type: choice
         default: 'susfs'
@@ -27,16 +27,16 @@ on:
           - susfs
           - nosusfs
       target_os:
-        description: 'Target OS (miui, aosp, coloros, both, all)'
+        description: 'Target OS (aosp, miui, coloros, both, all)'
         required: true
         type: choice
         default: 'all'
         options:
-          - miui
-          - aosp
-          - coloros
-          - both
           - all
+          - both
+          - aosp
+          - miui
+          - coloros
 
 jobs:
   build:
@@ -48,118 +48,173 @@ jobs:
           ref: ki-kernel-clean-stable
           submodules: false
           fetch-depth: 1
+          clean: true
 
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
-            crossbuild-essential-arm64 libarchive-tools zip unzip tar wget git curl python3 libzstd-dev jq ccache
+            crossbuild-essential-arm64 crossbuild-essential-armhf libarchive-tools \
+            zip unzip tar wget git curl python3 libzstd-dev jq ccache
 
       - name: Setup ZyCromerZ Clang 16
         run: |
           mkdir -p $HOME/zyc-clang
-          echo 'Downloading ZyCromerZ Clang 16...'
+          echo "Downloading ZyCromerZ Clang 16..."
           curl -sL "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz" -o /tmp/zyc-clang.tar.gz
-          tar -xzf /tmp/zyc-clang.tar.gz -C $HOME/zyc-clang/
-          rm -f /tmp/zyc-clang.payload.tar.gz || true
           tar -xzf /tmp/zyc-clang.tar.gz -C $HOME/zyc-clang/
           rm -f /tmp/zyc-clang.tar.gz
 
           mkdir -p $HOME/proton-clang
-          ln -sfn $HOME/zyc-clang $HOME/proton-clang/proton-clang-20210522
+          ln -sfn $HOME/zyc-clang$HOME/proton-clang/proton-clang-20210522
           echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
-      - name: Setup KernelSU & Variant / Noksu
+      - name: Setup KernelSU & Fix Missing Kconfig
         run: |
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           VARIANT="${{ github.event.inputs.variant }}"
           rm -rf KernelSU drivers/kernelsu
 
           if [ "$FLAVOR" = "noksu" ]; then
-            echo "[-] Building without KernelSU (Noksu mode)"
+            echo "[-] Building in Noksu mode (No KernelSU)"
+            mkdir -p drivers/kernelsu
+            touch drivers/kernelsu/Kconfig drivers/kernelsu/Makefile
           else
-            echo "[+] Setting up KernelSU flavor: $FLAVOR (Variant: $VARIANT)"
+            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode:$VARIANT)"
             case "$FLAVOR" in
+              resukisu)
+                git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
+                ;;
               kernelsu-next)
                 git clone https://github.com/KernelSU-Next/KernelSU-Next.git -b legacy KernelSU
                 ;;
               sukisu-ultra)
                 git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git -b main KernelSU
                 ;;
-              resukisu)
-                # ReSukiSU chính là BakaSU hiện tại
-                git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
-                ;;
               midori)
                 git clone https://github.com/midori01/KernelSU.git -b main KernelSU
                 ;;
             esac
-            
-            # Khôi phục symlink cho Kbuild chuẩn
+
             ln -sfn ../KernelSU/kernel drivers/kernelsu
           fi
 
-          # Cung cấp AnyKernel template
+          # Vá lỗi fs/Kconfig: can't open file "fs/nomount/Kconfig" nếu source bị thiếu thư mục
+          if grep -q "fs/nomount/Kconfig" fs/Kconfig 2>/dev/null; then
+            if [ ! -f "fs/nomount/Kconfig" ]; then
+              echo "[!] Fixing missing fs/nomount/Kconfig..."
+              mkdir -p fs/nomount
+              touch fs/nomount/Kconfig fs/nomount/Makefile
+            fi
+          fi
+
+          # Đảm bảo AnyKernel template tồn tại để build.sh không bị lỗi ở dòng cp -f anykernel_template/anykernel.sh
           mkdir -p anykernel_template
-          if [ -f anykernel.sh ]; then
+          if [ -f "anykernel.sh" ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
+          elif [ ! -f "anykernel_template/anykernel.sh" ]; then
+            git clone https://github.com/AstideLabs/AnyKernel3 -b kona --single-branch --depth=1 /tmp/ak3
+            cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
+            rm -rf /tmp/ak3
           fi
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
           mkdir -p manager_output
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
-          
+
           if [ "$FLAVOR" != "noksu" ]; then
             REPO=""
             case "$FLAVOR" in
+              resukisu)      REPO="Baka-SU/BakaSU" ;;
               kernelsu-next) REPO="KernelSU-Next/KernelSU-Next" ;;
               sukisu-ultra)  REPO="SukiSU-Ultra/SukiSU-Ultra" ;;
-              resukisu)      REPO="Baka-SU/BakaSU" ;;
               midori)        REPO="midori01/KernelSU" ;;
             esac
 
             echo "Fetching latest Manager APK from $REPO..."
-            RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+            RELEASE_JSON=$(curl -sL "https://api.github.com/repos/$REPO/releases/latest")
             APK_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
-            
+            APK_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
+
+            if [ -z "$APK_URL" ] \vert{}\vert{} [ "$APK_URL" = "null" ]; then
+              echo "[-] Not found in latest release, checking all releases/pre-releases..."
+              ALL_RELEASES=$(curl -sL "https://api.github.com/repos/$REPO/releases")
+              APK_URL=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
+              APK_NAME=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
+            fi
+
             if [ -n "$APK_URL" ] && [ "$APK_URL" != "null" ]; then
-              wget -q "$APK_URL" -O manager_output/manager.apk
-              echo "[+] Downloaded manager successfully from Release."
+              wget -q "$APK_URL" -O "manager_output/${FLAVOR}_${APK_NAME}"
+              echo "[+] Downloaded Manager APK: ${FLAVOR}_${APK_NAME}"
             else
-              echo "[-] Release APK not found."
+              echo "[-] No APK found in Releases for $REPO."
             fi
           fi
 
       - name: Run Ki-Kernel Build Script
         run: |
           chmod +x build.sh
-          BUILD_VARIANT="ksu"
+
+          # Ánh xạ đúng tham số $2 cho build.sh (ksu | nosusfs | noksu)
           if [ "${{ github.event.inputs.ksu_flavor }}" = "noksu" ]; then
-            BUILD_VARIANT="noksu"
+            SCRIPT_VARIANT="noksu"
           elif [ "${{ github.event.inputs.variant }}" = "nosusfs" ]; then
-            BUILD_VARIANT="nosusfs"
+            SCRIPT_VARIANT="nosusfs"
+          else
+            SCRIPT_VARIANT="ksu"
           fi
 
-          bash build.sh ${{ github.event.inputs.target_device }} $BUILD_VARIANT ${{ github.event.inputs.target_os }}
+          bash build.sh "${{ github.event.inputs.target_device }}" "$SCRIPT_VARIANT" "${{ github.event.inputs.target_os }}"
 
-      - name: Capture Output Zip Name
+      - name: Rename Zip with KSU Flavor & SuSFS Version
         run: |
+          FLAVOR="${{ github.event.inputs.ksu_flavor }}"
+          VARIANT="${{ github.event.inputs.variant }}"
+          DEVICE="${{ github.event.inputs.target_device }}"
+
           ORIGINAL_ZIP=$(ls *.zip | head -n 1)
           if [ -z "$ORIGINAL_ZIP" ]; then
             echo "Error: Kernel zip not found!"
             exit 1
           fi
-          echo "FINAL_ZIP_NAME=$ORIGINAL_ZIP" >> $GITHUB_ENV
-          echo "[+] Found build artifact: $ORIGINAL_ZIP"
 
-      - name: Upload Kernel Artifact
+          if [ "$FLAVOR" = "noksu" ]; then
+            CUSTOM_TAG="NOKSU"
+          else
+            if [ "$VARIANT" = "susfs" ]; then
+              SUSFS_VER=""
+              if [ -f "include/linux/susfs.h" ]; then
+                SUSFS_VER=$(grep -E "define SUSFS_VERSION" include/linux/susfs.h | cut -d'"' -f2 | tr -d ' ')
+              elif [ -f "include/linux/susfs_def.h" ]; then
+                SUSFS_VER=$(grep -E "define SUSFS_VERSION" include/linux/susfs_def.h | cut -d'"' -f2 | tr -d ' ')
+              fi
+              [ -z "$SUSFS_VER" ] && SUSFS_VER="SuSFS"
+              CUSTOM_TAG="${FLAVOR}_${SUSFS_VER}"
+            else
+              CUSTOM_TAG="${FLAVOR}_NoSuSFS"
+            fi
+          fi
+
+          # Thay thế tiền tố mặc định (KSU+SUSFS / KSU / NOKSU) của build.sh bằng tên KSU cụ thể + bản SuSFS
+          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP" \vert{} sed "s/^[^_]*_/${CUSTOM_TAG}_/")
+          if [ "$ORIGINAL_ZIP" != "$NEW_ZIP_NAME" ]; then
+            mv "$ORIGINAL_ZIP" "$NEW_ZIP_NAME"
+          fi
+
+          echo "FINAL_ZIP_NAME=${NEW_ZIP_NAME\%.zip}" >> $GITHUB_ENV
+          echo "FINAL_ZIP_FILE=${NEW_ZIP_NAME}" >> $GITHUB_ENV
+          echo "CUSTOM_TAG=${CUSTOM_TAG}" >> $GITHUB_ENV
+          echo "[+] Final Flashable Zip: $NEW_ZIP_NAME"
+
+      - name: Upload Kernel & Manager Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.FINAL_ZIP_NAME }}
           path: |
             ./*.zip
             manager_output/*.apk
+          if-no-files-found: warn
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
@@ -167,12 +222,14 @@ jobs:
           files: |
             ./*.zip
             manager_output/*.apk
-          tag_name: v1.4.1-${{ env.FINAL_ZIP_NAME }}-${{ github.run_number }}
-          name: "Ki-Kernel v1.4.1 - ${{ env.FINAL_ZIP_NAME }}"
+          tag_name: v1.4.1-${{ env.CUSTOM_TAG }}-${{ github.run_number }}
+          name: "Ki-Kernel v1.4.1 (${{ env.CUSTOM_TAG }}) -${{ github.event.inputs.target_device }}"
           body: |
-            - **Target Device**: ${{ github.event.inputs.target_device }}
-            - **KSU Flavor**: ${{ github.event.inputs.ksu_flavor }} (ReSukiSU)
-            - **Variant**: ${{ github.event.inputs.variant }} (Stealth SuSFS for VNeID/MBBank)
-            - **Target OS**: ${{ github.event.inputs.target_os }}
+            ### Thông tin bản Build (Ki-Kernel v1.4.1)
+            - **Thiết bị (Target Device)**: `${{ github.event.inputs.target_device }}`
+            - **Loại Root (KSU Flavor)**: `${{ github.event.inputs.ksu_flavor }}`
+            - **Chế độ SuSFS**: `${{ github.event.inputs.variant }}`
+            - **Hệ điều hành hỗ trợ (Target OS)**: `${{ github.event.inputs.target_os }}`
+            - **Tệp đính kèm**: Flashable Kernel Zip & Manager APK mới nhất.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
