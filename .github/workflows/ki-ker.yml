@@ -66,7 +66,8 @@ jobs:
           rm -f /tmp/zyc-clang.tar.gz
 
           mkdir -p $HOME/proton-clang
-          ln -sfn $HOME/zyc-clang$HOME/proton-clang/proton-clang-20210522
+          # Sửa lỗi thiếu dấu cách giữa nguồn và đích của ln -sfn
+          ln -sfn "$HOME/zyc-clang" "$HOME/proton-clang/proton-clang-20210522"
           echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
       - name: Setup KernelSU & Auto-Fix All Missing Kconfigs
@@ -96,12 +97,16 @@ jobs:
                 ;;
             esac
 
-            ln -sfn ../KernelSU/kernel drivers/kernelsu
+            if [ -d "KernelSU/kernel" ]; then
+              ln -sfn ../KernelSU/kernel drivers/kernelsu
+            else
+              ln -sfn ../KernelSU drivers/kernelsu
+            fi
           fi
 
-          # Dùng Python quét toàn bộ cây Kconfig để xóa hoặc tạo giả các file Kconfig bị thiếu (nomount, baseband-guard, v.v.)
+          # Quét Kconfig an toàn: BỎ QUA các dòng chứa biến môi trường ($) như arch/$SRCARCH/Kconfig
           python3 - << 'EOF'
-          import os, re, shutil
+          import os, re
 
           pattern = re.compile(r'^\s*source\s+["\']?([^"\'\s]+Kconfig[^"\'\s]*)["\']?')
 
@@ -123,11 +128,10 @@ jobs:
                           m = pattern.match(line)
                           if m:
                               target = m.group(1)
-                              # Nếu file Kconfig được gọi không tồn tại thực sự
-                              if not os.path.isfile(target):
+                              # Không đụng vào các đường dẫn chứa biến như $SRCARCH
+                              if '$' not in target and not os.path.isfile(target):
                                   print(f"[!] Removing broken Kconfig reference '{target}' in {kpath}")
                                   modified = True
-                                  # Xóa luôn dòng source bị lỗi khỏi file Kconfig
                                   continue
                           new_lines.append(line)
 
@@ -136,7 +140,7 @@ jobs:
                               fp.writelines(new_lines)
           EOF
 
-          # Dọn dẹp luôn trong Makefile nếu có gọi đến nomount hoặc baseband-guard bị thiếu
+          # Dọn dẹp Makefile nếu có gọi đến nomount hoặc baseband-guard bị thiếu
           sed -i '/nomount/d' fs/Makefile 2>/dev/null || true
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
 
@@ -149,6 +153,7 @@ jobs:
             cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
             rm -rf /tmp/ak3
           fi
+
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
