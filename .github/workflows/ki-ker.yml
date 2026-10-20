@@ -219,7 +219,12 @@ jobs:
             SCRIPT_VARIANT="ksu"
           fi
 
+          # Ép sinh trước các header SELinux (tránh lỗi thiếu classmap.h khi build song song)
+          mkdir -p out
+          make -C . O=out ARCH=arm64 CC=clang HOSTCC=gcc security/selinux/include/classmap.h security/selinux/include/av_permissions.h 2>/dev/null || true
+
           bash build.sh "${{ github.event.inputs.target_device }}" "$SCRIPT_VARIANT" "${{ github.event.inputs.target_os }}"
+
 
       - name: Rename Zip with KSU Flavor & SuSFS Version
         run: |
