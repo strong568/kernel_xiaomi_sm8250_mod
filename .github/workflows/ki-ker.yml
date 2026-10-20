@@ -114,29 +114,18 @@ jobs:
             done
           fi
 
-          # 3. Tạo file bbg_tracing.h an toàn bằng Python
-          python3 - << 'EOF'
-          import os
+          # 3. Xóa riêng broken symlink bbg_tracing.h (GIỮ NGUYÊN thư mục security/selinux/include và classmap.h)
+          rm -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h
+          mkdir -p security/selinux/include include/linux
 
-          os.makedirs('security/selinux/include', exist_ok=True)
-          os.makedirs('include/linux', exist_ok=True)
-
-          content = """#ifndef _BBG_TRACING_H
+          cat << 'EOF' > security/selinux/include/bbg_tracing.h
+          #ifndef _BBG_TRACING_H
           #define _BBG_TRACING_H
           static inline void bbg_JvmCheck(void) {}
           static inline int bbg_process_setexec(void) { return 0; }
           #endif
-          """
-
-          with open('security/selinux/include/bbg_tracing.h', 'w', encoding='utf-8') as f:
-              f.write(content)
-
-          with open('include/linux/bbg_tracing.h', 'w', encoding='utf-8') as f:
-              f.write(content)
-
-          print("[+] Successfully created bbg_tracing.h")
           EOF
-
+          cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h
 
           # 4. Quét Kconfig an toàn
           python3 - << 'EOF'
@@ -173,11 +162,15 @@ jobs:
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
           sed -i '/bbg/d' security/selinux/Makefile 2>/dev/null || true
 
-          # Đảm bảo có sẵn thư mục anykernel_template từ repo
+          # 5. Dùng trực tiếp AnyKernel có sẵn trong repo, chặn lệnh git clone AnyKernel3 bên trong build.sh
           mkdir -p anykernel_template
+          if [ -d "anykernel" ]; then
+            cp -rn anykernel/. anykernel_template/ 2>/dev/null || true
+          fi
           if [ -f "anykernel.sh" ] && [ ! -f "anykernel_template/anykernel.sh" ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
           fi
+          # sed -i 's|git clone https://github.com/AstideLabs/AnyKernel3.*|mkdir -p anykernel \&\& cp -rf anykernel_template/. anykernel/|g' build.sh
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
@@ -213,6 +206,7 @@ jobs:
       - name: Run Ki-Kernel Build Script
         run: |
           chmod +x build.sh
+          [ -f "tools/hostcc" ] && chmod +x tools/hostcc || true
 
           if [ "${{ github.event.inputs.ksu_flavor }}" = "noksu" ]; then
             SCRIPT_VARIANT="noksu"
@@ -234,8 +228,8 @@ jobs:
             echo "Error: Kernel zip not found!"
             exit 1
           fi
-          
-          cp -f "$ORIGINAL_ZIP" ./
+
+          cp -f "$ORIGINAL_ZIP" ./ 2>/dev/null || true
           ORIGINAL_ZIP_NAME=$(basename "$ORIGINAL_ZIP")
 
           if [ "$FLAVOR" = "noksu" ]; then
