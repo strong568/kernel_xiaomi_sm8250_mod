@@ -80,7 +80,7 @@ jobs:
             mkdir -p drivers/kernelsu
             touch drivers/kernelsu/Kconfig drivers/kernelsu/Makefile
           else
-            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode:$VARIANT)"
+            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode: $VARIANT)"
             case "$FLAVOR" in
               resukisu)
                 git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
@@ -99,16 +99,17 @@ jobs:
             ln -sfn ../KernelSU/kernel drivers/kernelsu
           fi
 
-          # Vá lỗi fs/Kconfig: can't open file "fs/nomount/Kconfig" nếu source bị thiếu thư mục
+          # Xử lý triệt để lỗi fs/nomount/Kconfig bị broken symlink hoặc thiếu file
           if grep -q "fs/nomount/Kconfig" fs/Kconfig 2>/dev/null; then
             if [ ! -f "fs/nomount/Kconfig" ]; then
-              echo "[!] Fixing missing fs/nomount/Kconfig..."
-              mkdir -p fs/nomount
-              touch fs/nomount/Kconfig fs/nomount/Makefile
+              echo "[!] Fixing broken fs/nomount..."
+              rm -rf fs/nomount
+              sed -i '/fs\/nomount\/Kconfig/d' fs/Kconfig
+              sed -i '/nomount/d' fs/Makefile 2>/dev/null || true
             fi
           fi
 
-          # Đảm bảo AnyKernel template tồn tại để build.sh không bị lỗi ở dòng cp -f anykernel_template/anykernel.sh
+          # Đảm bảo AnyKernel template tồn tại
           mkdir -p anykernel_template
           if [ -f "anykernel.sh" ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
@@ -117,6 +118,7 @@ jobs:
             cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
             rm -rf /tmp/ak3
           fi
+
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
