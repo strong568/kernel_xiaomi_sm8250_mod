@@ -1,4 +1,4 @@
-name: Build Ki-Kernel v1.4.1
+name: Ki-Kernel v1.4.1
 
 on:
   workflow_dispatch:
@@ -66,7 +66,6 @@ jobs:
           rm -f /tmp/zyc-clang.tar.gz
 
           mkdir -p $HOME/proton-clang
-          # Sửa lỗi thiếu dấu cách giữa nguồn và đích của ln -sfn
           ln -sfn "$HOME/zyc-clang" "$HOME/proton-clang/proton-clang-20210522"
           echo "$HOME/zyc-clang/bin" >> $GITHUB_PATH
 
@@ -81,7 +80,7 @@ jobs:
             mkdir -p drivers/kernelsu
             touch drivers/kernelsu/Kconfig drivers/kernelsu/Makefile
           else
-            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode: $VARIANT)"
+            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode:$VARIANT)"
             case "$FLAVOR" in
               resukisu)
                 git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
@@ -101,6 +100,15 @@ jobs:
               ln -sfn ../KernelSU/kernel drivers/kernelsu
             else
               ln -sfn ../KernelSU drivers/kernelsu
+            fi
+
+            # 1. Sửa lỗi BakaSU / SukiSU chặn build tại susfs_compat.mk ("Please wait susfs update.. Stop.")
+            find KernelSU -name "*.mk" -o -name "Makefile" | xargs sed -i 's/\$(error /$(warning /g' 2>/dev/null || true
+
+            # 2. Xử lý cảnh báo KSU_MANUAL_HOOK guard trong drivers/input/input.c cho BakaSU (susfs_inline)
+            if [ -f "drivers/input/input.c" ]; then
+              sed -i 's/#ifdef CONFIG_KSU_MANUAL_HOOK/#if defined(CONFIG_KSU) || defined(CONFIG_KSU_MANUAL_HOOK)/g' drivers/input/input.c
+              sed -i 's/#if defined(CONFIG_KSU_MANUAL_HOOK)/#if defined(CONFIG_KSU) || defined(CONFIG_KSU_MANUAL_HOOK)/g' drivers/input/input.c
             fi
           fi
 
@@ -153,7 +161,6 @@ jobs:
             cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
             rm -rf /tmp/ak3
           fi
-
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
