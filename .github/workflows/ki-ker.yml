@@ -11,11 +11,11 @@ on:
         description: 'Chọn loại KSU hoặc Noksu'
         required: true
         type: choice
-        default: 'bakasu'
+        default: 'resukisu'
         options:
           - kernelsu-next
           - sukisu-ultra
-          - bakasu
+          - resukisu
           - midori
           - noksu
       variant:
@@ -86,7 +86,8 @@ jobs:
               sukisu-ultra)
                 git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git -b main KernelSU
                 ;;
-              bakasu)
+              resukisu)
+                # ReSukiSU chính là BakaSU hiện tại
                 git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
                 ;;
               midori)
@@ -94,7 +95,7 @@ jobs:
                 ;;
             esac
             
-            # Khôi phục symlink cho Kbuild
+            # Khôi phục symlink cho Kbuild chuẩn
             ln -sfn ../KernelSU/kernel drivers/kernelsu
           fi
 
@@ -114,7 +115,7 @@ jobs:
             case "$FLAVOR" in
               kernelsu-next) REPO="KernelSU-Next/KernelSU-Next" ;;
               sukisu-ultra)  REPO="SukiSU-Ultra/SukiSU-Ultra" ;;
-              bakasu)        REPO="Baka-SU/BakaSU" ;;
+              resukisu)      REPO="Baka-SU/BakaSU" ;;
               midori)        REPO="midori01/KernelSU" ;;
             endcase
 
@@ -133,8 +134,6 @@ jobs:
       - name: Run Ki-Kernel Build Script
         run: |
           chmod +x build.sh
-          # Map các biến variant và ksu_flavor khớp với script build.sh
-          # Nếu variant là susfs -> truyền 'ksu' (hoặc 'susfs'), nếu nosusfs -> 'nosusfs', nếu noksu -> 'noksu'
           BUILD_VARIANT="ksu"
           if [ "${{ github.event.inputs.ksu_flavor }}" = "noksu" ]; then
             BUILD_VARIANT="noksu"
@@ -146,7 +145,6 @@ jobs:
 
       - name: Capture Output Zip Name
         run: |
-          # build.sh tự động đặt tên file zip theo chuẩn của nó, ta lấy trực tiếp file zip trong thư mục gốc
           ORIGINAL_ZIP=$(ls *.zip | head -n 1)
           if [ -z "$ORIGINAL_ZIP" ]; then
             echo "Error: Kernel zip not found!"
@@ -173,7 +171,7 @@ jobs:
           name: "Ki-Kernel v1.4.1 - ${{ env.FINAL_ZIP_NAME }}"
           body: |
             - **Target Device**: ${{ github.event.inputs.target_device }}
-            - **KSU Flavor**: ${{ github.event.inputs.ksu_flavor }}
+            - **KSU Flavor**: ${{ github.event.inputs.ksu_flavor }} (ReSukiSU)
             - **Variant**: ${{ github.event.inputs.variant }} (Stealth SuSFS for VNeID/MBBank)
             - **Target OS**: ${{ github.event.inputs.target_os }}
         env:
