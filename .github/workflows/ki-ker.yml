@@ -73,7 +73,6 @@ jobs:
         run: |
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           VARIANT="${{ github.event.inputs.variant }}"
-          # Xóa cả cấu hình submodule .gitmodules nếu có để tránh lỗi git cleanup cuối job
           rm -rf KernelSU drivers/kernelsu
           git config -f .gitmodules --remove-section submodule.KernelSU 2>/dev/null || true
 
@@ -82,7 +81,7 @@ jobs:
             mkdir -p drivers/kernelsu
             touch drivers/kernelsu/Kconfig drivers/kernelsu/Makefile
           else
-            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode:$VARIANT)"
+            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode: $VARIANT)"
             case "$FLAVOR" in
               resukisu)
                 git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
@@ -104,10 +103,10 @@ jobs:
               ln -sfn ../KernelSU drivers/kernelsu
             fi
 
-            # 1. Sửa lỗi BakaSU / SukiSU chặn build tại susfs_compat.mk ("Please wait susfs update.. Stop.")
+            # 1. Sửa lỗi BakaSU / SukiSU chặn build tại susfs_compat.mk
             find KernelSU -type f \( -name "*.mk" -o -name "Makefile" \) -exec sed -i 's/\$(error /$(warning /g' {} + 2>/dev/null || true
 
-            # 2. Chuyển toàn bộ CONFIG_KSU_MANUAL_HOOK sang CONFIG_KSU để BakaSU (susfs_inline) nhận đủ hook và hết cảnh báo
+            # 2. Chuyển toàn bộ CONFIG_KSU_MANUAL_HOOK sang CONFIG_KSU
             for hook_file in fs/exec.c fs/open.c fs/read_write.c fs/stat.c fs/namei.c drivers/input/input.c drivers/tty/pty.c; do
               if [ -f "$hook_file" ]; then
                 sed -i 's/CONFIG_KSU_MANUAL_HOOK/CONFIG_KSU/g' "$hook_file"
@@ -115,7 +114,7 @@ jobs:
             done
           fi
 
-          # 3. Khắc phục triệt để lỗi "fatal error: 'bbg_tracing.h' file not found" trong security/selinux
+          # 3. Tạo thư mục trước, sau đó tạo file bbg_tracing.h an toàn
           mkdir -p security/selinux/include
           cat << 'EOF' > security/selinux/include/bbg_tracing.h
           #ifndef _BBG_TRACING_H
@@ -126,7 +125,7 @@ jobs:
           EOF
           cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h 2>/dev/null || true
 
-          # 4. Quét Kconfig an toàn: BỎ QUA các dòng chứa biến môi trường ($) như arch/$SRCARCH/Kconfig
+          # 4. Quét Kconfig an toàn
           python3 - << 'EOF'
           import os, re
 
@@ -151,7 +150,6 @@ jobs:
                           if m:
                               target = m.group(1)
                               if '$' not in target and not os.path.isfile(target):
-                                  print(f"[!] Removing broken Kconfig reference '{target}' in {kpath}")
                                   modified = True
                                   continue
                           new_lines.append(line)
@@ -161,7 +159,7 @@ jobs:
                               fp.writelines(new_lines)
           EOF
 
-          # Dọn dẹp Makefile nếu có gọi đến nomount hoặc baseband-guard bị thiếu
+          # Dọn dẹp Makefile
           sed -i '/nomount/d' fs/Makefile 2>/dev/null || true
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
           sed -i '/bbg/d' security/selinux/Makefile 2>/dev/null || true
@@ -175,6 +173,7 @@ jobs:
             cp -f /tmp/ak3/anykernel.sh anykernel_template/anykernel.sh
             rm -rf /tmp/ak3
           fi
+
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
