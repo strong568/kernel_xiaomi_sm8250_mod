@@ -81,7 +81,7 @@ jobs:
             mkdir -p drivers/kernelsu
             touch drivers/kernelsu/Kconfig drivers/kernelsu/Makefile
           else
-            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode: $VARIANT)"
+            echo "[+] Cloning KernelSU flavor: $FLAVOR (Mode:$VARIANT)"
             case "$FLAVOR" in
               resukisu)
                 git clone https://github.com/Baka-SU/BakaSU.git -b main KernelSU
@@ -114,7 +114,7 @@ jobs:
             done
           fi
 
-          # 3. Tạo file bbg_tracing.h an toàn (Dùng rm -rf để tránh lỗi Is a directory)
+          # 3. Tạo file bbg_tracing.h an toàn
           rm -rf security/selinux/include
           mkdir -p security/selinux/include
           cat << 'EOF' > security/selinux/include/bbg_tracing.h
@@ -129,9 +129,7 @@ jobs:
           # 4. Quét Kconfig an toàn
           python3 - << 'EOF'
           import os, re
-
           pattern = re.compile(r'^\s*source\s+["\']?([^"\'\s]+Kconfig[^"\'\s]*)["\']?')
-
           for root, dirs, files in os.walk('.'):
               if '.git' in dirs:
                   dirs.remove('.git')
@@ -143,7 +141,6 @@ jobs:
                               lines = fp.readlines()
                       except Exception:
                           continue
-
                       new_lines = []
                       modified = False
                       for line in lines:
@@ -154,7 +151,6 @@ jobs:
                                   modified = True
                                   continue
                           new_lines.append(line)
-
                       if modified:
                           with open(kpath, 'w', encoding='utf-8') as fp:
                               fp.writelines(new_lines)
@@ -165,12 +161,11 @@ jobs:
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
           sed -i '/bbg/d' security/selinux/Makefile 2>/dev/null || true
 
-          # 5. Sử dụng sẵn AnyKernel template trong repo (Không clone ngoài nữa)
+          # Đảm bảo có sẵn thư mục anykernel_template từ repo
           mkdir -p anykernel_template
           if [ -f "anykernel.sh" ] && [ ! -f "anykernel_template/anykernel.sh" ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
           fi
-
 
       - name: Fetch Latest KernelSU Manager APK
         run: |
@@ -192,7 +187,6 @@ jobs:
             APK_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
 
             if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
-              echo "[-] Not found in latest release, checking all releases/pre-releases..."
               ALL_RELEASES=$(curl -sL "https://api.github.com/repos/$REPO/releases")
               APK_URL=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
               APK_NAME=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
@@ -201,8 +195,6 @@ jobs:
             if [ -n "$APK_URL" ] && [ "$APK_URL" != "null" ]; then
               wget -q "$APK_URL" -O "manager_output/${FLAVOR}_${APK_NAME}"
               echo "[+] Downloaded Manager APK: ${FLAVOR}_${APK_NAME}"
-            else
-              echo "[-] No APK found in Releases for $REPO."
             fi
           fi
 
@@ -210,7 +202,6 @@ jobs:
         run: |
           chmod +x build.sh
 
-          # Ánh xạ đúng tham số $2 cho build.sh (ksu | nosusfs | noksu)
           if [ "${{ github.event.inputs.ksu_flavor }}" = "noksu" ]; then
             SCRIPT_VARIANT="noksu"
           elif [ "${{ github.event.inputs.variant }}" = "nosusfs" ]; then
@@ -219,24 +210,21 @@ jobs:
             SCRIPT_VARIANT="ksu"
           fi
 
-          # Ép sinh trước các header SELinux (tránh lỗi thiếu classmap.h khi build song song)
-          mkdir -p out
-          make -C . O=out ARCH=arm64 CC=clang HOSTCC=gcc security/selinux/include/classmap.h security/selinux/include/av_permissions.h 2>/dev/null || true
-
           bash build.sh "${{ github.event.inputs.target_device }}" "$SCRIPT_VARIANT" "${{ github.event.inputs.target_os }}"
-
 
       - name: Rename Zip with KSU Flavor & SuSFS Version
         run: |
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           VARIANT="${{ github.event.inputs.variant }}"
-          DEVICE="${{ github.event.inputs.target_device }}"
 
-          ORIGINAL_ZIP=$(ls *.zip | head -n 1)
+          ORIGINAL_ZIP=$(ls *.zip release/*.zip 2>/dev/null | head -n 1)
           if [ -z "$ORIGINAL_ZIP" ]; then
             echo "Error: Kernel zip not found!"
             exit 1
           fi
+          
+          cp -f "$ORIGINAL_ZIP" ./
+          ORIGINAL_ZIP_NAME=$(basename "$ORIGINAL_ZIP")
 
           if [ "$FLAVOR" = "noksu" ]; then
             CUSTOM_TAG="NOKSU"
@@ -255,10 +243,9 @@ jobs:
             fi
           fi
 
-          # Thay thế tiền tố mặc định (KSU+SUSFS / KSU / NOKSU) của build.sh bằng tên KSU cụ thể + bản SuSFS
-          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP" | sed "s/^[^_]*_/${CUSTOM_TAG}_/")
-          if [ "$ORIGINAL_ZIP" != "$NEW_ZIP_NAME" ]; then
-            mv "$ORIGINAL_ZIP" "$NEW_ZIP_NAME"
+          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP_NAME" | sed "s/^[^_]*_/${CUSTOM_TAG}_/")
+          if [ "$ORIGINAL_ZIP_NAME" != "$NEW_ZIP_NAME" ]; then
+            mv "$ORIGINAL_ZIP_NAME" "$NEW_ZIP_NAME"
           fi
 
           echo "FINAL_ZIP_NAME=${NEW_ZIP_NAME\%.zip}" >> $GITHUB_ENV
