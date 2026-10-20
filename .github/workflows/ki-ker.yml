@@ -27,15 +27,16 @@ on:
           - susfs
           - nosusfs
       target_os:
-        description: 'Target OS (miui, aosp, both)'
+        description: 'Target OS (miui, aosp, coloros, both, all)'
         required: true
         type: choice
-        default: 'both'
+        default: 'all'
         options:
           - miui
           - aosp
+          - coloros
           - both
-
+          - all
 
 jobs:
   build:
@@ -52,7 +53,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
-            crossbuild-essential-arm64 libarchive-tools zip unzip tar wget git curl python3 libzstd-dev jq
+            crossbuild-essential-arm64 libarchive-tools zip unzip tar wget git curl python3 libzstd-dev jq ccache
 
       - name: Setup ZyCromerZ Clang 16
         run: |
@@ -95,11 +96,9 @@ jobs:
             
             # Khôi phục symlink cho Kbuild
             ln -sfn ../KernelSU/kernel drivers/kernelsu
-
-
           fi
 
-          # Cung cấp AnyKernel template từ gốc repo[span_1](start_span)[span_1](end_span)
+          # Cung cấp AnyKernel template
           mkdir -p anykernel_template
           if [ -f anykernel.sh ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
@@ -117,7 +116,7 @@ jobs:
               sukisu-ultra)  REPO="SukiSU-Ultra/SukiSU-Ultra" ;;
               bakasu)        REPO="Baka-SU/BakaSU" ;;
               midori)        REPO="midori01/KernelSU" ;;
-            esac
+            endcase
 
             echo "Fetching latest Manager APK from $REPO..."
             RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
@@ -134,35 +133,27 @@ jobs:
       - name: Run Ki-Kernel Build Script
         run: |
           chmod +x build.sh
-          bash build.sh ${{ github.event.inputs.target_device }} ${{ github.event.inputs.ksu_flavor }} ${{ github.event.inputs.variant }} ${{ github.event.inputs.target_os }}
-
-      - name: Format Output Names with SuSFS Version & Flavor
-        run: |
-          FLAVOR="${{ github.event.inputs.ksu_flavor }}"
-          VARIANT="${{ github.event.inputs.variant }}"
-          DEVICE="${{ github.event.inputs.target_device }}"
-          
-          if [ "$FLAVOR" = "noksu" ]; then
-            TAG="noksu"
-          else
-            if [ "$VARIANT" = "susfs" ]; then
-              SUSFS_VERSION=""
-              if [ -f "include/linux/susfs.h" ]; then
-                SUSFS_VERSION=$(grep -E "define SUSFS_VERSION" include/linux/susfs.h | cut -d'"' -f2)
-              fi
-              [ -z "$SUSFS_VERSION" ] && SUSFS_VERSION="susfs-unknown"
-              TAG="${FLAVOR}-su_${SUSFS_VERSION}-stealth"
-            else
-              TAG="${FLAVOR}-nosusfs"
-            fi
+          # Map các biến variant và ksu_flavor khớp với script build.sh
+          # Nếu variant là susfs -> truyền 'ksu' (hoặc 'susfs'), nếu nosusfs -> 'nosusfs', nếu noksu -> 'noksu'
+          BUILD_VARIANT="ksu"
+          if [ "${{ github.event.inputs.ksu_flavor }}" = "noksu" ]; then
+            BUILD_VARIANT="noksu"
+          elif [ "${{ github.event.inputs.variant }}" = "nosusfs" ]; then
+            BUILD_VARIANT="nosusfs"
           fi
 
+          bash build.sh ${{ github.event.inputs.target_device }} $BUILD_VARIANT ${{ github.event.inputs.target_os }}
+
+      - name: Capture Output Zip Name
+        run: |
+          # build.sh tự động đặt tên file zip theo chuẩn của nó, ta lấy trực tiếp file zip trong thư mục gốc
           ORIGINAL_ZIP=$(ls *.zip | head -n 1)
-          NEW_ZIP_NAME="Ki-Kernel-v1.3-${DEVICE}-${TAG}.zip"
-          mv "$ORIGINAL_ZIP" "$NEW_ZIP_NAME"
-          
-          echo "FINAL_ZIP_NAME=$NEW_ZIP_NAME" >> $GITHUB_ENV
-          echo "[+] Final Zip renamed to: $NEW_ZIP_NAME"
+          if [ -z "$ORIGINAL_ZIP" ]; then
+            echo "Error: Kernel zip not found!"
+            exit 1
+          fi
+          echo "FINAL_ZIP_NAME=$ORIGINAL_ZIP" >> $GITHUB_ENV
+          echo "[+] Found build artifact: $ORIGINAL_ZIP"
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
@@ -178,8 +169,8 @@ jobs:
           files: |
             ./*.zip
             manager_output/*.apk
-          tag_name: v1.3-${{ env.FINAL_ZIP_NAME }}-${{ github.run_number }}
-          name: "Ki-Kernel v1.3 - ${{ env.FINAL_ZIP_NAME }}"
+          tag_name: v1.4.1-${{ env.FINAL_ZIP_NAME }}-${{ github.run_number }}
+          name: "Ki-Kernel v1.4.1 - ${{ env.FINAL_ZIP_NAME }}"
           body: |
             - **Target Device**: ${{ github.event.inputs.target_device }}
             - **KSU Flavor**: ${{ github.event.inputs.ksu_flavor }}
