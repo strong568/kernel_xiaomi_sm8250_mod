@@ -114,21 +114,28 @@ jobs:
             done
           fi
 
-          # 3. Tạo file bbg_tracing.h an toàn
-          mkdir -p security/selinux/include
-          mkdir -p include/linux
-          
-          echo '#ifndef _BBG_TRACING_H' > security/selinux/include/bbg_tracing.h
-          echo '#define _BBG_TRACING_H' >> security/selinux/include/bbg_tracing.h
-          echo 'static inline void bbg_JvmCheck(void) {}' >> security/selinux/include/bbg_tracing.h
-          echo 'static inline int bbg_process_setexec(void) { return 0; }' >> security/selinux/include/bbg_tracing.h
-          echo '#endif' >> security/selinux/include/bbg_tracing.h
+          # 3. Tạo file bbg_tracing.h an toàn bằng Python
+          python3 - << 'EOF'
+          import os
 
-          if [ -d "include/linux" ]; then
-            cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h || true
-          fi
+          os.makedirs('security/selinux/include', exist_ok=True)
+          os.makedirs('include/linux', exist_ok=True)
 
+          content = """#ifndef _BBG_TRACING_H
+          #define _BBG_TRACING_H
+          static inline void bbg_JvmCheck(void) {}
+          static inline int bbg_process_setexec(void) { return 0; }
+          #endif
+          """
 
+          with open('security/selinux/include/bbg_tracing.h', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+          with open('include/linux/bbg_tracing.h', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+          print("[+] Successfully created bbg_tracing.h")
+          EOF
 
           # 4. Quét Kconfig an toàn
           python3 - << 'EOF'
