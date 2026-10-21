@@ -345,6 +345,12 @@ if [ "$TARGET_OS" == "aosp" ] || [ "$TARGET_OS" == "both" ] || [ "$TARGET_OS" ==
     echo ">>> AOSP Build Done! <<<"
 fi
 
+# Áp dụng bản vá sạc nhanh 67W cho POCO F4 (munch)
+if [ "$TARGET_DEVICE" == "munch" ] && [ -f "apply-fastcharge-bypass.py" ]; then
+    echo ">>> Applying 67W Fast Charge Patch for munch <<<"
+    python3 apply-fastcharge-bypass.py
+fi
+
 # ------------------------------------------------------------
 # BUILD MIUI / HyperOS
 # ------------------------------------------------------------
