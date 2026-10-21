@@ -11,6 +11,7 @@ TARGET_DEVICE=$1
 KERNEL_NAME="Ki-kernel"
 KERNEL_VERSION="v1.4.1"
 BUILD_DATETIME=$(date +'%Y%m%d_%H%M')
+OUT_DIR="out"
 
 if [ -z "$1" ]; then
     echo "=========================================================="
@@ -77,7 +78,7 @@ echo "CCACHE_DIR: [$CCACHE_DIR]"
 export KBUILD_BUILD_USER="build-user"
 export KBUILD_BUILD_HOST="build-host 4.19.404R"
 
-MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC=$PWD/tools/hostcc HOSTLD=/usr/bin/ld.bfd CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
+MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=${OUT_DIR} CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC=$PWD/tools/hostcc HOSTLD=/usr/bin/ld.bfd CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
 
 if [ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]; then
     echo "Error: arch/arm64/configs/${TARGET_DEVICE}_defconfig not found."
@@ -131,51 +132,46 @@ echo "Variant       : $VARIANT_TAG"
 echo "Target OS     : $TARGET_OS"
 echo "=========================================================="
 
+# Root Configuration: RKSU / ReSukiSU + SuSFS v2.3.0 (Chuẩn Susfs 1 - Pass VCB)
 apply_ksu_config() {
-    if [ $KSU_ENABLE -eq 1 ]; then
-        scripts/config --file out/.config \
-            -e KSU \
-            -e THREAD_INFO_IN_TASK \
-            -d KSU_KPROBES_HOOK \
-            -d KSU_DEBUG \
-            -d KSU_TRACEPOINT_HOOK \
-            -e KSU_THRONE_TRACKER_ALWAYS_THREADED \
-            -d KSU_ALLOWLIST_WORKAROUND \
-            -e KSU_LSM_SECURITY_HOOKS \
-            -d KSU_MANUAL_HOOK \
-            -e KSU_MULTI_MANAGER_SUPPORT
+    local CONFIG_FILE="${OUT_DIR}/.config"
 
-        if [ $SUSFS_ENABLE -eq 1 ]; then
-            scripts/config --file out/.config \
+    if [ "$KSU_ENABLE" -eq 1 ]; then
+        if [ "$SUSFS_ENABLE" -eq 1 ]; then
+            echo "[*] Injecting Full RKSU / ReSukiSU + SuSFS Configuration into .config..."
+            scripts/config --file "$CONFIG_FILE" \
+                -e KSU \
                 -e KSU_SUSFS \
-                -d KSU_MANUAL_HOOK \
+                -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
+                -d KSU_MANUAL_HOOK \
+                -e KSU_MULTI_MANAGER_SUPPORT \
+                -e THREAD_INFO_IN_TASK \
                 -e KSU_SUSFS_SUS_PATH \
-                -e KSU_SUSFS_SUS_MAP \
-                -e KSU_SUSFS_SUS_NETLINK \
-                -e KSU_SUSFS_AUTO_ADD_SUS_KSURULES \
-                -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-                -e KSU_SUSFS_SUS_SU \
                 -e KSU_SUSFS_SUS_MOUNT \
                 -e KSU_SUSFS_SUS_KSTAT \
                 -e KSU_SUSFS_SPOOF_UNAME \
-                -e KSU_SUSFS_ENABLE_LOG \
+                -d KSU_SUSFS_ENABLE_LOG \
                 -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                 -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                 -e KSU_SUSFS_OPEN_REDIRECT \
-                -e KSU_SUSFS_SUS_OVERLAYFS
+                -e KSU_SUSFS_SUS_MAP \
+                -d KSU_SUSFS_SUS_SU \
+                -d KSU_SUSFS_SUS_OVERLAYFS \
+                -d KSU_DISABLE_MANAGER \
+                -d KSU_DISABLE_POLICY
         else
-            scripts/config --file out/.config \
+            echo "[*] Injecting KSU (NoSuSFS / Manual Hook) Configuration into .config..."
+            scripts/config --file "$CONFIG_FILE" \
+                -e KSU \
+                -e THREAD_INFO_IN_TASK \
+                -e KSU_MULTI_MANAGER_SUPPORT \
                 -e KSU_MANUAL_HOOK \
                 -d KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
+                -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
                 -d KSU_SUSFS \
                 -d KSU_SUSFS_SUS_PATH \
-                -d KSU_SUSFS_SUS_MAP \
-                -d KSU_SUSFS_SUS_NETLINK \
-                -d KSU_SUSFS_AUTO_ADD_SUS_KSURULES \
-                -d KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-                -d KSU_SUSFS_SUS_SU \
                 -d KSU_SUSFS_SUS_MOUNT \
                 -d KSU_SUSFS_SUS_KSTAT \
                 -d KSU_SUSFS_SPOOF_UNAME \
@@ -183,34 +179,27 @@ apply_ksu_config() {
                 -d KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                 -d KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                 -d KSU_SUSFS_OPEN_REDIRECT \
-                -d KSU_SUSFS_SUS_OVERLAYFS
+                -d KSU_SUSFS_SUS_MAP \
+                -d KSU_SUSFS_SUS_SU \
+                -d KSU_SUSFS_SUS_OVERLAYFS \
+                -d KSU_DISABLE_MANAGER \
+                -d KSU_DISABLE_POLICY
         fi
     else
-        scripts/config --file out/.config \
+        echo "[*] Disabling embedded KSU for Pure Clean Kernel..."
+        scripts/config --file "$CONFIG_FILE" \
             -d KSU \
-            -d KSU_MANUAL_HOOK \
-            -d KSU_TRACEPOINT_HOOK \
             -d KSU_SUSFS \
-            -d KSU_SUSFS_SUS_PATH \
-            -d KSU_SUSFS_SUS_MAP \
-            -d KSU_SUSFS_SUS_NETLINK \
-            -d KSU_SUSFS_AUTO_ADD_SUS_KSURULES \
-            -d KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-            -d KSU_SUSFS_SUS_SU \
-            -d KSU_SUSFS_SUS_MOUNT \
-            -d KSU_SUSFS_SUS_KSTAT \
-            -d KSU_SUSFS_SPOOF_UNAME \
-            -d KSU_SUSFS_ENABLE_LOG \
-            -d KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-            -d KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-            -d KSU_SUSFS_OPEN_REDIRECT \
-            -d KSU_SUSFS_SUS_OVERLAYFS
+            -d KSU_KPROBES_HOOK \
+            -d KSU_TRACEPOINT_HOOK \
+            -d KSU_MANUAL_HOOK
+        sed -i '/CONFIG_KSU/d' "$CONFIG_FILE" 2>/dev/null || true
     fi
 }
 
 apply_droidspaces_config() {
     echo "Enforcing Droidspaces & Containerization configs..."
-    scripts/config --file out/.config \
+    scripts/config --file "${OUT_DIR}/.config" \
         -e SYSVIPC \
         -e POSIX_MQUEUE \
         -e NAMESPACES \
@@ -294,7 +283,7 @@ apply_droidspaces_config() {
 }
 
 echo "Cleaning build directories..."
-rm -rf out/ anykernel/
+rm -rf "${OUT_DIR}/" anykernel/
 rm -rf include/config include/generated .config 2>/dev/null || true
 rm -rf build_artifacts 2>/dev/null || true
 mkdir -p build_artifacts/aosp build_artifacts/miui
@@ -324,30 +313,30 @@ fi
 if [ "$TARGET_OS" == "aosp" ] || [ "$TARGET_OS" == "both" ] || [ "$TARGET_OS" == "all" ]; then
     echo ""
     echo ">>> Compiling Kernel for AOSP / Custom ROM <<<"
-    rm -rf out/
+    rm -rf "${OUT_DIR}/"
     make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
     apply_ksu_config
     apply_droidspaces_config
     make $MAKE_ARGS olddefconfig
     make $MAKE_ARGS KCFLAGS="-O2" -j$(nproc)
 
-    if [ ! -f "out/arch/arm64/boot/Image" ]; then
+    if [ ! -f "${OUT_DIR}/arch/arm64/boot/Image" ]; then
         echo "Error: AOSP Image compilation failed."
         exit 1
     fi
 
     echo "Compiling DTBs (Extreme UV + OC 683 MHz)..."
     cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
-    rm -rf out/arch/arm64/boot/dts
+    rm -rf "${OUT_DIR}/arch/arm64/boot/dts"
     make $MAKE_ARGS dtbs -j$(nproc)
-    if [ -f "out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
-        cp out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb out/arch/arm64/boot/dtb
+    if [ -f "${OUT_DIR}/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
+        cp "${OUT_DIR}/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" "${OUT_DIR}/arch/arm64/boot/dtb"
     else
-        find out/arch/arm64/boot/dts -name '*.dtb' | sort | head -n 1 | xargs cat > out/arch/arm64/boot/dtb
+        find "${OUT_DIR}/arch/arm64/boot/dts" -name '*.dtb' | sort | head -n 1 | xargs cat > "${OUT_DIR}/arch/arm64/boot/dtb"
     fi
 
-    cp out/arch/arm64/boot/Image build_artifacts/aosp/Image
-    cp out/arch/arm64/boot/dtb build_artifacts/aosp/dtb
+    cp "${OUT_DIR}/arch/arm64/boot/Image" build_artifacts/aosp/Image
+    cp "${OUT_DIR}/arch/arm64/boot/dtb" build_artifacts/aosp/dtb
     echo ">>> AOSP Build Done! <<<"
 fi
 
@@ -361,13 +350,13 @@ if [ "$TARGET_OS" == "miui" ] || [ "$TARGET_OS" == "coloros" ] || [ "$TARGET_OS"
     else
         echo ">>> Compiling Kernel for MIUI / HyperOS <<<"
     fi
-    rm -rf out/
+    rm -rf "${OUT_DIR}/"
     make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
     apply_ksu_config
     apply_droidspaces_config
 
     # Enable MIUI hardware drivers, disable obsolete/hanging daemons
-    scripts/config --file out/.config \
+    scripts/config --file "${OUT_DIR}/.config" \
         -e EROFS_FS \
         -e EROFS_FS_XATTR \
         -e EROFS_FS_POSIX_ACL \
@@ -401,23 +390,23 @@ if [ "$TARGET_OS" == "miui" ] || [ "$TARGET_OS" == "coloros" ] || [ "$TARGET_OS"
     make $MAKE_ARGS olddefconfig
     make $MAKE_ARGS KCFLAGS="-O2" -j$(nproc)
 
-    if [ ! -f "out/arch/arm64/boot/Image" ]; then
+    if [ ! -f "${OUT_DIR}/arch/arm64/boot/Image" ]; then
         echo "Error: Image compilation failed."
         exit 1
     fi
 
     echo "Compiling DTBs (Extreme UV + OC 683 MHz)..."
     cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
-    rm -rf out/arch/arm64/boot/dts
+    rm -rf "${OUT_DIR}/arch/arm64/boot/dts"
     make $MAKE_ARGS dtbs -j$(nproc)
-    if [ -f "out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
-        cp out/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb out/arch/arm64/boot/dtb
+    if [ -f "${OUT_DIR}/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
+        cp "${OUT_DIR}/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" "${OUT_DIR}/arch/arm64/boot/dtb"
     else
-        find out/arch/arm64/boot/dts -name '*.dtb' | sort | head -n 1 | xargs cat > out/arch/arm64/boot/dtb
+        find "${OUT_DIR}/arch/arm64/boot/dts" -name '*.dtb' | sort | head -n 1 | xargs cat > "${OUT_DIR}/arch/arm64/boot/dtb"
     fi
 
-    cp out/arch/arm64/boot/Image build_artifacts/miui/Image
-    cp out/arch/arm64/boot/dtb build_artifacts/miui/dtb
+    cp "${OUT_DIR}/arch/arm64/boot/Image" build_artifacts/miui/Image
+    cp "${OUT_DIR}/arch/arm64/boot/dtb" build_artifacts/miui/dtb
     if [ "$TARGET_OS" == "coloros" ]; then
         echo ">>> ColorOS / OxygenOS Build Done! <<<"
     else
