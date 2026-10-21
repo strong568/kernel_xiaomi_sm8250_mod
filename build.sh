@@ -132,50 +132,60 @@ echo "Target OS     : $TARGET_OS"
 echo "=========================================================="
 
 apply_ksu_config() {
-    if [ $KSU_ENABLE -eq 1 ]; then
-        scripts/config --file out/.config \
-            -e KSU \
-            -e THREAD_INFO_IN_TASK \
-            -d KSU_KPROBES_HOOK \
-            -d KSU_DEBUG \
-            -d KSU_TRACEPOINT_HOOK \
-            -e KSU_THRONE_TRACKER_ALWAYS_THREADED \
-            -d KSU_ALLOWLIST_WORKAROUND \
-            -e KSU_LSM_SECURITY_HOOKS \
-            -d KSU_MANUAL_HOOK \
-            -e KSU_MULTI_MANAGER_SUPPORT
+    local CONFIG_FILE="${OUT_DIR}/.config"
 
-        if [ $SUSFS_ENABLE -eq 1 ]; then
-            scripts/config --file out/.config \
+    if [ "$KSU_ENABLE" -eq 1 ]; then
+        if [ "$SUSFS_ENABLE" -eq 1 ]; then
+            echo "[*] Injecting Anti-Detection RKSU / ReSukiSU + SuSFS Configuration into .config..."
+            scripts/config --file "$CONFIG_FILE" \
+                -e KSU \
                 -e KSU_SUSFS \
-                -d KSU_MANUAL_HOOK \
+                -d KSU_DEBUG \
+                -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
+                -d KSU_MANUAL_HOOK \
+                -e KSU_MULTI_MANAGER_SUPPORT \
+                -e THREAD_INFO_IN_TASK \
                 -e KSU_SUSFS_SUS_PATH \
-                -e KSU_SUSFS_SUS_MAP \
-                -e KSU_SUSFS_SUS_NETLINK \
-                -e KSU_SUSFS_AUTO_ADD_SUS_KSURULES \
-                -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-                -e KSU_SUSFS_SUS_SU \
                 -e KSU_SUSFS_SUS_MOUNT \
+                -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+                -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
                 -e KSU_SUSFS_SUS_KSTAT \
                 -e KSU_SUSFS_SPOOF_UNAME \
-                -e KSU_SUSFS_ENABLE_LOG \
+                -d KSU_SUSFS_ENABLE_LOG \
                 -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                 -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                 -e KSU_SUSFS_OPEN_REDIRECT \
-                -e KSU_SUSFS_SUS_OVERLAYFS
+                -e KSU_SUSFS_SUS_MAP \
+                -d KSU_SUSFS_SUS_SU \
+                -d KSU_SUSFS_SUS_OVERLAYFS \
+                -d KSU_DISABLE_MANAGER \
+                -d KSU_DISABLE_POLICY \
+                -d KPROBES \
+                -d HAVE_KPROBES \
+                -d KPROBE_EVENTS \
+                -d UPROBE_EVENTS \
+                -d KALLSYMS_ALL \
+                -e SECURITY_SELINUX \
+                -d SECURITY_SELINUX_DEVELOP \
+                -d SECURITY_SELINUX_PERMISSIVE_DONTAUDIT \
+                -d DEBUG_FS \
+                -d PROC_KCORE \
+                -d DEVMEM \
+                -d DEVKMEM
         else
-            scripts/config --file out/.config \
+            echo "[*] Injecting KSU (NoSuSFS / Manual Hook) Configuration into .config..."
+            scripts/config --file "$CONFIG_FILE" \
+                -e KSU \
+                -e THREAD_INFO_IN_TASK \
+                -e KSU_MULTI_MANAGER_SUPPORT \
                 -e KSU_MANUAL_HOOK \
+                -d KSU_DEBUG \
                 -d KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
+                -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
                 -d KSU_SUSFS \
                 -d KSU_SUSFS_SUS_PATH \
-                -d KSU_SUSFS_SUS_MAP \
-                -d KSU_SUSFS_SUS_NETLINK \
-                -d KSU_SUSFS_AUTO_ADD_SUS_KSURULES \
-                -d KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-                -d KSU_SUSFS_SUS_SU \
                 -d KSU_SUSFS_SUS_MOUNT \
                 -d KSU_SUSFS_SUS_KSTAT \
                 -d KSU_SUSFS_SPOOF_UNAME \
@@ -183,28 +193,21 @@ apply_ksu_config() {
                 -d KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                 -d KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                 -d KSU_SUSFS_OPEN_REDIRECT \
-                -d KSU_SUSFS_SUS_OVERLAYFS
+                -d KSU_SUSFS_SUS_MAP \
+                -d KSU_SUSFS_SUS_SU \
+                -d KSU_SUSFS_SUS_OVERLAYFS \
+                -d KSU_DISABLE_MANAGER \
+                -d KSU_DISABLE_POLICY
         fi
     else
-        scripts/config --file out/.config \
+        echo "[*] Disabling embedded KSU for Pure Clean Kernel..."
+        scripts/config --file "$CONFIG_FILE" \
             -d KSU \
-            -d KSU_MANUAL_HOOK \
-            -d KSU_TRACEPOINT_HOOK \
             -d KSU_SUSFS \
-            -d KSU_SUSFS_SUS_PATH \
-            -d KSU_SUSFS_SUS_MAP \
-            -d KSU_SUSFS_SUS_NETLINK \
-            -d KSU_SUSFS_AUTO_ADD_SUS_KSURULES \
-            -d KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-            -d KSU_SUSFS_SUS_SU \
-            -d KSU_SUSFS_SUS_MOUNT \
-            -d KSU_SUSFS_SUS_KSTAT \
-            -d KSU_SUSFS_SPOOF_UNAME \
-            -d KSU_SUSFS_ENABLE_LOG \
-            -d KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-            -d KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-            -d KSU_SUSFS_OPEN_REDIRECT \
-            -d KSU_SUSFS_SUS_OVERLAYFS
+            -d KSU_KPROBES_HOOK \
+            -d KSU_TRACEPOINT_HOOK \
+            -d KSU_MANUAL_HOOK
+        sed -i '/CONFIG_KSU/d' "$CONFIG_FILE" 2>/dev/null || true
     fi
 }
 
