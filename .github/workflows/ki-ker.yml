@@ -286,7 +286,7 @@ jobs:
             mv "$ORIGINAL_ZIP_NAME" "$NEW_ZIP_NAME"
           fi
 
-          echo "FINAL_ZIP_NAME=${NEW_ZIP_NAME\%.zip}" >> $GITHUB_ENV
+          echo "FINAL_ZIP_NAME=$(basename "$NEW_ZIP_NAME" .zip)" >> $GITHUB_ENV
           echo "FINAL_ZIP_FILE=${NEW_ZIP_NAME}" >> $GITHUB_ENV
           echo "CUSTOM_TAG=${CUSTOM_TAG}" >> $GITHUB_ENV
           echo "[+] Final Flashable Zip: $NEW_ZIP_NAME"
