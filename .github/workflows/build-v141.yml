@@ -1,4 +1,4 @@
-name: Build Ki-Kernel v141
+name: Build Ki-Kernel v141 draft
 
 on:
   workflow_dispatch:
