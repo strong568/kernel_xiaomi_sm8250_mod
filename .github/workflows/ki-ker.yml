@@ -239,7 +239,24 @@ jobs:
                       f.write(content)
                   print(f"[+] Patched Multi-Manager support into {path}")
           EOF
-          
+ 
+          # 8. Fix lỗi Clang 16 bắt bẻ unused functions trong drivers/scsi/ufs/ufshcd.c
+          python3 - << 'EOF'
+          import os
+          ufshcd_path = "drivers/scsi/ufs/ufshcd.c"
+          if os.path.exists(ufshcd_path):
+              with open(ufshcd_path, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+              
+              # Thêm __maybe_unused vào trước các hàm bị Clang 16 bắt lỗi
+              content = content.replace("static void ufshcd_add_cmd_upiu_trace", "static __maybe_unused void ufshcd_add_cmd_upiu_trace")
+              content = content.replace("static void __ufshcd_cmd_log", "static __maybe_unused void __ufshcd_cmd_log")
+              
+              with open(ufshcd_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+              print("[+] Successfully patched unused functions in drivers/scsi/ufs/ufshcd.c")
+          EOF
+                             
       - name: Fetch Latest KernelSU Manager APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
