@@ -269,12 +269,22 @@ jobs:
           else
             if [ "$VARIANT" = "susfs" ]; then
               SUSFS_VER=""
-              if [ -f "include/linux/susfs.h" ]; then
-                SUSFS_VER=$(grep -E "define SUSFS_VERSION" include/linux/susfs.h | cut -d'"' -f2 | tr -d ' ')
-              elif [ -f "include/linux/susfs_def.h" ]; then
-                SUSFS_VER=$(grep -E "define SUSFS_VERSION" include/linux/susfs_def.h | cut -d'"' -f2 | tr -d ' ')
+
+              # 1. Quét tìm chuỗi định nghĩa SUSFS_VERSION trong toàn bộ mã nguồn
+              SUSFS_VER=$(grep -rhoE '#define\s+(SUSFS_VERSION|CONFIG_SUSFS_VERSION)\s+["v0-9.]+' . 2>/dev/null | head -n 1 | awk '{print $3}' | tr -d '" ')
+
+              # 2. Nếu không thấy trong header, quét trực tiếp từ log build hoặc Makefile
+              if [ -z "$SUSFS_VER" ]; then
+                SUSFS_VER=$(grep -rnoE "SUSFS_VERSION:\s*v[0-9.]+" . 2>/dev/null | head -n 1 | awk '{print $NF}')
               fi
-              [ -z "$SUSFS_VER" ] && SUSFS_VER="SuSFS"
+
+              # 3. Chuẩn hóa format (nếu chưa có 'v' phía trước thì thêm vào, ví dụ: 2.3.0 -> v2.3.0)
+              if [ -n "$SUSFS_VER" ]; then
+                [[ "$SUSFS_VER" != v* ]] && SUSFS_VER="v${SUSFS_VER}"
+              else
+                SUSFS_VER="SuSFS"
+              fi
+
               CUSTOM_TAG="${FLAVOR}_${SUSFS_VER}"
             else
               CUSTOM_TAG="${FLAVOR}_NoSuSFS"
@@ -286,7 +296,7 @@ jobs:
             mv "$ORIGINAL_ZIP_NAME" "$NEW_ZIP_NAME"
           fi
 
-          echo "FINAL_ZIP_NAME=$(basename "$NEW_ZIP_NAME" .zip)" >> $GITHUB_ENV
+          echo "FINAL_ZIP_NAME=${NEW_ZIP_NAME%.zip}" >> $GITHUB_ENV
           echo "FINAL_ZIP_FILE=${NEW_ZIP_NAME}" >> $GITHUB_ENV
           echo "CUSTOM_TAG=${CUSTOM_TAG}" >> $GITHUB_ENV
           echo "[+] Final Flashable Zip: $NEW_ZIP_NAME"
