@@ -132,16 +132,17 @@ echo "Variant       : $VARIANT_TAG"
 echo "Target OS     : $TARGET_OS"
 echo "=========================================================="
 
-# Root Configuration: RKSU / ReSukiSU + SuSFS v2.3.0 (Chuẩn Susfs 1 - Pass VCB)
+# Root Configuration: RKSU / ReSukiSU + SuSFS v2.3.0 (giữ nguyên cấu trúc 3 chế độ (ksu, nosusfs, noksu) như đoạn code bạn vừa gửi nhưng tích hợp thêm toàn bộ các cờ vượt VCB, MB Bank, VNeID )
 apply_ksu_config() {
     local CONFIG_FILE="${OUT_DIR}/.config"
 
     if [ "$KSU_ENABLE" -eq 1 ]; then
         if [ "$SUSFS_ENABLE" -eq 1 ]; then
-            echo "[*] Injecting Full RKSU / ReSukiSU + SuSFS Configuration into .config..."
+            echo "[*] Injecting Anti-Detection RKSU / ReSukiSU + SuSFS Configuration into .config..."
             scripts/config --file "$CONFIG_FILE" \
                 -e KSU \
                 -e KSU_SUSFS \
+                -d KSU_DEBUG \
                 -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
                 -d KSU_MANUAL_HOOK \
@@ -149,6 +150,8 @@ apply_ksu_config() {
                 -e THREAD_INFO_IN_TASK \
                 -e KSU_SUSFS_SUS_PATH \
                 -e KSU_SUSFS_SUS_MOUNT \
+                -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+                -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
                 -e KSU_SUSFS_SUS_KSTAT \
                 -e KSU_SUSFS_SPOOF_UNAME \
                 -d KSU_SUSFS_ENABLE_LOG \
@@ -159,7 +162,19 @@ apply_ksu_config() {
                 -d KSU_SUSFS_SUS_SU \
                 -d KSU_SUSFS_SUS_OVERLAYFS \
                 -d KSU_DISABLE_MANAGER \
-                -d KSU_DISABLE_POLICY
+                -d KSU_DISABLE_POLICY \
+                -d KPROBES \
+                -d HAVE_KPROBES \
+                -d KPROBE_EVENTS \
+                -d UPROBE_EVENTS \
+                -d KALLSYMS_ALL \
+                -e SECURITY_SELINUX \
+                -d SECURITY_SELINUX_DEVELOP \
+                -d SECURITY_SELINUX_PERMISSIVE_DONTAUDIT \
+                -d DEBUG_FS \
+                -d PROC_KCORE \
+                -d DEVMEM \
+                -d DEVKMEM
         else
             echo "[*] Injecting KSU (NoSuSFS / Manual Hook) Configuration into .config..."
             scripts/config --file "$CONFIG_FILE" \
@@ -167,6 +182,7 @@ apply_ksu_config() {
                 -e THREAD_INFO_IN_TASK \
                 -e KSU_MULTI_MANAGER_SUPPORT \
                 -e KSU_MANUAL_HOOK \
+                -d KSU_DEBUG \
                 -d KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
                 -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
@@ -196,6 +212,7 @@ apply_ksu_config() {
         sed -i '/CONFIG_KSU/d' "$CONFIG_FILE" 2>/dev/null || true
     fi
 }
+
 
 apply_droidspaces_config() {
     echo "Enforcing Droidspaces & Containerization configs..."
