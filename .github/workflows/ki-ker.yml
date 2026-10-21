@@ -73,8 +73,11 @@ jobs:
         run: |
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
           VARIANT="${{ github.event.inputs.variant }}"
-          rm -rf KernelSU drivers/kernelsu
+
+          # Gỡ hoàn toàn submodule KernelSU khỏi Git index để tránh lỗi Post-job cleanup
+          git rm --cached -f KernelSU 2>/dev/null || true
           git config -f .gitmodules --remove-section submodule.KernelSU 2>/dev/null || true
+          rm -rf KernelSU drivers/kernelsu
 
           if [ "$FLAVOR" = "noksu" ]; then
             echo "[-] Building in Noksu mode (No KernelSU)"
@@ -114,20 +117,51 @@ jobs:
             done
           fi
 
-          # 3. Xóa riêng broken symlink bbg_tracing.h (GIỮ NGUYÊN thư mục security/selinux/include và classmap.h)
+          # 3. Fix lỗi fs/stat.c thiếu khai báo ksu_handle_newfstat_ret và ksu_handle_fstat64_ret
+          python3 - << 'EOF'
+          import os
+          stat_path = "fs/stat.c"
+          if os.path.exists(stat_path):
+              with open(stat_path, "r") as f:
+                  c = f.read()
+              weak_hooks = """
+          void __attribute__((weak)) ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr) {}
+          #if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+          void __attribute__((weak)) ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr) {}
+          #endif
+          """
+              if "ksu_handle_newfstat_ret" in c and "__attribute__((weak)) ksu_handle_newfstat_ret" not in c:
+                  target = "extern int ksu_handle_stat"
+                  if target in c:
+                      c = c.replace(target, weak_hooks.strip() + "\n" + target, 1)
+                  else:
+                      c = weak_hooks.strip() + "\n" + c
+                  with open(stat_path, "w") as f:
+                      f.write(c)
+                  print("[+] Injected weak prototypes for ksu_handle_newfstat_ret & ksu_handle_fstat64_ret in fs/stat.c")
+          EOF
+
+          # 4. Fix lỗi incomplete type 'struct bbg_cred_security_struct' trong SELinux
           rm -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h
           mkdir -p security/selinux/include include/linux
 
           cat << 'EOF' > security/selinux/include/bbg_tracing.h
           #ifndef _BBG_TRACING_H
           #define _BBG_TRACING_H
+          struct bbg_cred_security_struct {
+              int unused;
+          };
           static inline void bbg_JvmCheck(void) {}
           static inline int bbg_process_setexec(void) { return 0; }
           #endif
           EOF
           cp -f security/selinux/include/bbg_tracing.h include/linux/bbg_tracing.h
 
-          # 4. Quét Kconfig an toàn
+          if [ -f "security/selinux/include/objsec.h" ]; then
+            sed -i '/bbg_cred/d' security/selinux/include/objsec.h
+          fi
+
+          # 5. Quét Kconfig an toàn
           python3 - << 'EOF'
           import os, re
           pattern = re.compile(r'^\s*source\s+["\']?([^"\'\s]+Kconfig[^"\'\s]*)["\']?')
@@ -162,7 +196,7 @@ jobs:
           sed -i '/baseband-guard/d' security/Makefile 2>/dev/null || true
           sed -i '/bbg/d' security/selinux/Makefile 2>/dev/null || true
 
-          # 5. Dùng trực tiếp AnyKernel có sẵn trong repo, chặn lệnh git clone AnyKernel3 bên trong build.sh
+          # 6. Chuẩn bị template AnyKernel
           mkdir -p anykernel_template
           if [ -d "anykernel" ]; then
             cp -rn anykernel/. anykernel_template/ 2>/dev/null || true
@@ -170,9 +204,10 @@ jobs:
           if [ -f "anykernel.sh" ] && [ ! -f "anykernel_template/anykernel.sh" ]; then
             cp -f anykernel.sh anykernel_template/anykernel.sh
           fi
-          # sed -i 's|git clone https://github.com/AstideLabs/AnyKernel3.*|mkdir -p anykernel \&\& cp -rf anykernel_template/. anykernel/|g' build.sh
 
       - name: Fetch Latest KernelSU Manager APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p manager_output
           FLAVOR="${{ github.event.inputs.ksu_flavor }}"
@@ -187,19 +222,16 @@ jobs:
             esac
 
             echo "Fetching latest Manager APK from $REPO..."
-            RELEASE_JSON=$(curl -sL "https://api.github.com/repos/$REPO/releases/latest")
-            APK_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
-            APK_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
-
-            if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
-              ALL_RELEASES=$(curl -sL "https://api.github.com/repos/$REPO/releases")
-              APK_URL=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1)
-              APK_NAME=$(echo "$ALL_RELEASES" | jq -r '.[].assets[]? | select(.name | endswith(".apk")) | .name' | head -n 1)
-            fi
+            AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
+            ALL_RELEASES=$(curl -sL -H "$AUTH_HEADER" "https://api.github.com/repos/$REPO/releases")
+            APK_URL=$(echo "$ALL_RELEASES" | jq -r 'if type == "array" then .[].assets[]? else empty end | select(.name? | endswith(".apk")) | .browser_download_url' 2>/dev/null | head -n 1)
+            APK_NAME=$(echo "$ALL_RELEASES" | jq -r 'if type == "array" then .[].assets[]? else empty end | select(.name? | endswith(".apk")) | .name' 2>/dev/null | head -n 1)
 
             if [ -n "$APK_URL" ] && [ "$APK_URL" != "null" ]; then
               wget -q "$APK_URL" -O "manager_output/${FLAVOR}_${APK_NAME}"
               echo "[+] Downloaded Manager APK: ${FLAVOR}_${APK_NAME}"
+            else
+              echo "[i] No APK found in $REPO releases (skipping APK download)."
             fi
           fi
 
@@ -249,7 +281,7 @@ jobs:
             fi
           fi
 
-          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP_NAME" | sed "s/^[^_]*_/${CUSTOM_TAG}_/")
+          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP_NAME" \vert{} sed "s/^[^_]*_/${CUSTOM_TAG}_/")
           if [ "$ORIGINAL_ZIP_NAME" != "$NEW_ZIP_NAME" ]; then
             mv "$ORIGINAL_ZIP_NAME" "$NEW_ZIP_NAME"
           fi
