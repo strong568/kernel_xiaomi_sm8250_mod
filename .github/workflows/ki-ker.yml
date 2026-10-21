@@ -257,13 +257,53 @@ jobs:
               print("[+] Successfully patched unused functions in drivers/scsi/ufs/ufshcd.c")
           EOF
 
-          # 9. Fix lỗi thiếu <linux/module.h> trong drivers/soc/qcom/rpmh-rsc.c
-          if [ -f "drivers/soc/qcom/rpmh-rsc.c" ]; then
-            if ! grep -q "<linux/module.h>" drivers/soc/qcom/rpmh-rsc.c; then
-              sed -i '1i #include <linux/module.h>' drivers/soc/qcom/rpmh-rsc.c
-              echo "[+] Added #include <linux/module.h> to drivers/soc/qcom/rpmh-rsc.c"
-            fi
+          # 9. Fix chuẩn lỗi thiếu <linux/module.h> trong rpmh-rsc.c (kiểm tra pr_fmt có sẵn) & Export SELinux symbols cho BakaSU
+          python3 - << 'EOF'
+          import os, re
+
+          # 9.1. Thêm <linux/module.h> vào rpmh-rsc.c một cách an toàn (tránh đè lên pr_fmt dòng 7)
+          rsc_path = "drivers/soc/qcom/rpmh-rsc.c"
+          if os.path.exists(rsc_path):
+              with open(rsc_path, "r", encoding="utf-8", errors="ignore") as f:
+                  c = f.read()
+              if "<linux/module.h>" not in c:
+                  # Tìm vị trí sau khối định nghĩa pr_fmt hoặc sau include đầu tiên
+                  if "#define pr_fmt" in c:
+                      c = c.replace('#define pr_fmt(fmt) "%s " fmt, KBUILD_MODNAME', '#define pr_fmt(fmt) "%s " fmt, KBUILD_MODNAME\n#include <linux/module.h>')
+                  else:
+                      c = re.sub(r'(#include\s+<linux/[^>]+>)', r'\1\n#include <linux/module.h>', c, count=1)
+                  with open(rsc_path, "w", encoding="utf-8") as f:
+                      f.write(c)
+                  print("[+] Added #include <linux/module.h> safely into rpmh-rsc.c")
+
+          # 9.2. Export 3 symbols SELinux cho BakaSU khi tắt CONFIG_KALLSYMS_ALL
+          selinuxfs_path = "security/selinux/selinuxfs.c"
+          if os.path.exists(selinuxfs_path):
+              with open(selinuxfs_path, "r", encoding="utf-8", errors="ignore") as f:
+                  c = f.read()
+              if "sel_handle_status_ops" in c:
+                  c = re.sub(r'\bstatic\s+(const\s+struct\s+file_operations\s+sel_handle_status_ops\b)', r'\1', c)
+                  with open(selinuxfs_path, "w", encoding="utf-8") as f:
+                      f.write(c)
+                  print("[+] Exported sel_handle_status_ops in security/selinux/selinuxfs.c")
+
+          services_path = "security/selinux/ss/services.c"
+          if os.path.exists(services_path):
+              with open(services_path, "r", encoding="utf-8", errors="ignore") as f:
+                  c = f.read()
+              c = re.sub(r'\bstatic\s+(void\s+security_dump_masked_av\b)', r'\1', c)
+              c = re.sub(r'\bstatic\s+(void\s+context_struct_compute_av\b)', r'\1', c)
+              with open(services_path, "w", encoding="utf-8", errors="ignore") as f:
+                  f.write(c)
+              print("[+] Exported security_dump_masked_av & context_struct_compute_av in security/selinux/ss/services.c")
+          EOF
+
+          # 9.3. Đảm bảo giữ CONFIG_KALLSYMS=y và CONFIG_KALLSYMS_ALL=y trong build.sh để BakaSU symbol_resolver hoạt động ổn định
+          if [ -f "build.sh" ]; then
+            sed -i 's/-d KALLSYMS_ALL/-e KALLSYMS -e KALLSYMS_ALL/g' build.sh
+            echo "[+] Enabled KALLSYMS_ALL in build.sh for BakaSU compatibility"
           fi
+
                                       
       - name: Fetch Latest KernelSU Manager APK
         env:
