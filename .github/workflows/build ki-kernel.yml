@@ -112,6 +112,7 @@ jobs:
               ln -sfn ../KernelSU drivers/kernelsu
             fi
 
+
             # 1. Sửa lỗi BakaSU / SukiSU chặn build tại susfs_compat.mk
             find KernelSU -type f \( -name "*.mk" -o -name "Makefile" \) -exec sed -i 's/\$(error /$(warning /g' {} + 2>/dev/null || true
 
@@ -123,6 +124,31 @@ jobs:
             done
           fi
 
+          # Fix lỗi undefined symbol: trace_clock_local trong drivers/android/binder.c
+          python3 - << 'EOF'
+          import os, re
+
+          binder_path = "drivers/android/binder.c"
+          if os.path.exists(binder_path):
+              with open(binder_path, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+
+              weak_trace_clock = """
+          #include <linux/sched/clock.h>
+          u64 __attribute__((weak)) trace_clock_local(void)
+          {
+              return local_clock();
+          }
+          """
+              if "trace_clock_local" in content and "__attribute__((weak)) trace_clock_local" not in content:
+                  # Chèn ngay sau dòng #include đầu tiên trong binder.c
+                  content = re.sub(r'(#include\s+<[^>]+>)', r'\1\n' + weak_trace_clock.strip(), content, count=1)
+                  with open(binder_path, "w", encoding="utf-8") as f:
+                      f.write(content)
+                  print("[+] Injected weak fallback for trace_clock_local() in drivers/android/binder.c")
+          EOF
+
+          
           # 3. Fix lỗi fs/stat.c thiếu khai báo ksu_handle_newfstat_ret và ksu_handle_fstat64_ret
           python3 - << 'EOF'
           import os
@@ -298,12 +324,45 @@ jobs:
               print("[+] Exported security_dump_masked_av & context_struct_compute_av in security/selinux/ss/services.c")
           EOF
 
-          # 9.3. Đảm bảo giữ CONFIG_KALLSYMS=y và CONFIG_KALLSYMS_ALL=y trong build.sh để BakaSU symbol_resolver hoạt động ổn định
+          # 9.3. Đồng bộ cấu hình build.sh cho mọi loại KSU Flavor (BakaSU, SukiSU-Ultra, KSUN, Midori...)
           if [ -f "build.sh" ]; then
+            # 1. Giữ KALLSYMS và KALLSYMS_ALL để symbol_resolver (BakaSU/SukiSU) không bị lỗi bootloop/mất root
             sed -i 's/-d KALLSYMS_ALL/-e KALLSYMS -e KALLSYMS_ALL/g' build.sh
-            echo "[+] Enabled KALLSYMS_ALL in build.sh for BakaSU compatibility"
+            
+            # 2. Bật KSU_MANUAL_HOOK (vì bước 2 đã gộp hook và tắt KPROBES, nếu để -d sẽ làm mất hook trên SukiSU/KSUN)
+            sed -i 's/-d KSU_MANUAL_HOOK/-e KSU_MANUAL_HOOK/g' build.sh
+
+            echo "[+] Patched build.sh for Universal Multi-KSU & Manager compatibility"
           fi
 
+
+          # 10. Tự động ép giá trị mặc định của /proc/fast_charge thành 1 trong mã nguồn
+          python3 - << 'EOF'
+          import os, re
+
+          # Quét tìm các tệp nguồn định nghĩa fast_charge trong thư mục drivers hoặc fs
+          for root, dirs, files in os.walk('.'):
+              if '.git' in dirs:
+                  dirs.remove('.git')
+              for file in files:
+                  if file.endswith('.c'):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                              content = f.read()
+                          
+                          # Kiểm tra xem tệp có chứa proc entry fast_charge hay không
+                          if 'fast_charge' in content and 'proc_create' in content:
+                              # Thay thế các biến khởi tạo giá trị từ 0 thành 1
+                              new_content = re.sub(r'(\b[a-zA-Z0-9_]*fast_charge[a-zA-Z0-9_]*\s*=\s*)0(\s*;)', r'\g<1>1\2', content)
+                              if new_content != content:
+                                  with open(path, 'w', encoding='utf-8') as f:
+                                      f.write(new_content)
+                                  print(f"[+] Patched default fast_charge = 1 in {path}")
+                      except Exception:
+                          continue
+          EOF
+          
                                       
       - name: Fetch Latest KernelSU Manager APK
         env:
