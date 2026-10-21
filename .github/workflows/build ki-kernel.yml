@@ -6,7 +6,7 @@ on:
       kernel_branch:
         description: 'Chọn nhánh (Branch) để build kernel'
         required: true
-        default: 'ki-kernel-clean-stable'
+        default: 'Ki-ker-munch-67w'
         type: string
       target_device:
         description: 'Target Device (munch, alioth, apollo, lmi, umi...)'
@@ -124,7 +124,7 @@ jobs:
             done
           fi
 
-          # Fix lỗi undefined symbol: trace_clock_local trong drivers/android/binder.c
+          # Fix lỗi undefined symbol / redefinition: trace_clock_local trong drivers/android/binder.c
           python3 - << 'EOF'
           import os, re
 
@@ -133,19 +133,25 @@ jobs:
               with open(binder_path, "r", encoding="utf-8", errors="ignore") as f:
                   content = f.read()
 
-              weak_trace_clock = """
-          #include <linux/sched/clock.h>
-          u64 __attribute__((weak)) trace_clock_local(void)
-          {
-              return local_clock();
-          }
-          """
-              if "trace_clock_local" in content and "__attribute__((weak)) trace_clock_local" not in content:
-                  # Chèn ngay sau dòng #include đầu tiên trong binder.c
-                  content = re.sub(r'(#include\s+<[^>]+>)', r'\1\n' + weak_trace_clock.strip(), content, count=1)
-                  with open(binder_path, "w", encoding="utf-8") as f:
-                      f.write(content)
-                  print("[+] Injected weak fallback for trace_clock_local() in drivers/android/binder.c")
+              # 1. Nếu trước đó nhánh code đã bị chèn sẵn hàm weak gây lỗi redefinition thì gỡ bỏ
+              content = re.sub(
+                  r'u64\s+__attribute__\(\(weak\)\)\s+trace_clock_local\(void\)\s*\{\s*return\s+local_clock\(\);\s*\}',
+                  '',
+                  content
+              )
+
+              # 2. Đảm bảo có header <linux/sched/clock.h> cho hàm local_clock()
+              if "<linux/sched/clock.h>" not in content:
+                  content = re.sub(r'(#include\s+<[^>]+>)', r'\1\n#include <linux/sched/clock.h>', content, count=1)
+
+              # 3. Thay thế trực tiếp lời gọi trace_clock_local() thành local_clock()
+              # (Chỉ thay lời gọi hàm, không đụng vào phần định nghĩa hàm nếu có sẵn trong file)
+              content = re.sub(r'=\s*trace_clock_local\s*\(\s*\)\s*;', '= local_clock();', content)
+              content = re.sub(r'\breturn\s+trace_clock_local\s*\(\s*\)\s*;', 'return local_clock();', content)
+
+              with open(binder_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+              print("[+] Replaced trace_clock_local() calls with local_clock() in drivers/android/binder.c")
           EOF
 
           
@@ -445,7 +451,8 @@ jobs:
               # 4. Chuẩn hóa định dạng: Nếu quét được version (ví dụ: 2.3.0), ép thành v2.3.0. Nếu hoàn toàn không tìm thấy, lấy chữ "SuSFS" làm tên nhãn.
               if [ -n "$SUSFS_VER" ]; then
                 SUSFS_VER="v${SUSFS_VER}"
-                CUSTOM_TAG="${FLOUR:-$FLAVOR}-susfs-${SUSFS_VER}"
+                CUSTOM_TAG="${FLAVOR}-susfs-${SUSFS_VER}"
+
               else
                 CUSTOM_TAG="${FLAVOR}-susfs-custom"
               fi
