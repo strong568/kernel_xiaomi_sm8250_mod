@@ -281,7 +281,7 @@ jobs:
             fi
           fi
 
-          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP_NAME" \vert{} sed "s/^[^_]*_/${CUSTOM_TAG}_/")
+          NEW_ZIP_NAME=$(echo "$ORIGINAL_ZIP_NAME" | sed "s/^[^_]*_/${CUSTOM_TAG}_/")
           if [ "$ORIGINAL_ZIP_NAME" != "$NEW_ZIP_NAME" ]; then
             mv "$ORIGINAL_ZIP_NAME" "$NEW_ZIP_NAME"
           fi
