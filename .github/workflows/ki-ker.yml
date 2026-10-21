@@ -228,7 +228,7 @@ jobs:
                   || check_v2_signature(path, 0x3e6, "79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7")  /* KernelSU-Next (KSUN) */
                   || check_v2_signature(path, 0x368, "b9ee6759de4794f954883458b722b97ae6527cb7709a051db9a2348c0eea1e42")  /* MidoriSU */
                   || check_v2_signature(path, 0x35c, "947ae944f3de4ed4c21a7e4f7953ecf351bfa2b36239da37a34111ad29993eef")  /* SukiSU-Ultra */
-                  || check_v2_signature(path, 0x377, "d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64"); /* BakaSU / ReSukiSU */
+                  || check_v2_signature(path, 0x377, "d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64") /* BakaSU / ReSukiSU */
                   || check_v2_signature(path, 0x396, "f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b"); /* rsuntk RKSU */
               """
 
@@ -256,7 +256,15 @@ jobs:
                   f.write(content)
               print("[+] Successfully patched unused functions in drivers/scsi/ufs/ufshcd.c")
           EOF
-                             
+
+          # 9. Fix lỗi thiếu <linux/module.h> trong drivers/soc/qcom/rpmh-rsc.c
+          if [ -f "drivers/soc/qcom/rpmh-rsc.c" ]; then
+            if ! grep -q "<linux/module.h>" drivers/soc/qcom/rpmh-rsc.c; then
+              sed -i '1i #include <linux/module.h>' drivers/soc/qcom/rpmh-rsc.c
+              echo "[+] Added #include <linux/module.h> to drivers/soc/qcom/rpmh-rsc.c"
+            fi
+          fi
+                                      
       - name: Fetch Latest KernelSU Manager APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
