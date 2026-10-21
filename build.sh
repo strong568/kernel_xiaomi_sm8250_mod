@@ -9,7 +9,7 @@ set -e
 
 TARGET_DEVICE=$1
 KERNEL_NAME="Ki-kernel"
-KERNEL_VERSION="v1.4.1"
+KERNEL_VERSION="v1.4.1-strong568"
 BUILD_DATETIME=$(date +'%Y%m%d_%H%M')
 OUT_DIR="out"
 
