@@ -123,6 +123,29 @@ jobs:
             done
           fi
 
+          # Fix lỗi xung đột liên kết Binder trong KernelSU / ReSukiSU , BakaSU
+          # Fix lỗi undefined symbol: trace_clock_local trong drivers/android/binder.c (khi bật XIAOMI_MIUI)
+          python3 - << 'EOF'
+          import os, re
+          binder_path = "drivers/android/binder.c"
+          if os.path.exists(binder_path):
+              with open(binder_path, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+              weak_trace_clock = """
+          #include <linux/sched/clock.h>
+          u64 __attribute__((weak)) trace_clock_local(void)
+          {
+              return local_clock();
+          }
+          """
+              if "trace_clock_local" in content and "__attribute__((weak)) trace_clock_local" not in content:
+                  content = re.sub(r'(#include\s+<[^>]+>)', r'\1\n' + weak_trace_clock.strip(), content, count=1)
+                  with open(binder_path, "w", encoding="utf-8") as f:
+                      f.write(content)
+                  print("[+] Injected weak fallback for trace_clock_local() in drivers/android/binder.c")
+          EOF
+
+          
           # 3. Fix lỗi fs/stat.c thiếu khai báo ksu_handle_newfstat_ret và ksu_handle_fstat64_ret
           python3 - << 'EOF'
           import os
@@ -298,10 +321,11 @@ jobs:
               print("[+] Exported security_dump_masked_av & context_struct_compute_av in security/selinux/ss/services.c")
           EOF
 
-          # 9.3. Đảm bảo giữ CONFIG_KALLSYMS=y và CONFIG_KALLSYMS_ALL=y trong build.sh để BakaSU symbol_resolver hoạt động ổn định
+          # 9.3. Đồng bộ cấu hình build.sh cho mọi loại KSU Flavor (BakaSU, SukiSU-Ultra, KSUN, Midori...)
           if [ -f "build.sh" ]; then
             sed -i 's/-d KALLSYMS_ALL/-e KALLSYMS -e KALLSYMS_ALL/g' build.sh
-            echo "[+] Enabled KALLSYMS_ALL in build.sh for BakaSU compatibility"
+            sed -i 's/-d KSU_MANUAL_HOOK/-e KSU_MANUAL_HOOK/g' build.sh
+            echo "[+] Patched build.sh for Universal Multi-KSU & Manager compatibility"
           fi
 
                                       
