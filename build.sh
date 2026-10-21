@@ -312,6 +312,12 @@ if [ ! -f "security/selinux/flask.h" ]; then
     /tmp/genheaders security/selinux/flask.h security/selinux/av_permissions.h
 fi
 
+# Áp dụng bản vá sạc nhanh 67W (15-40°C = 12.4A) cho munch
+if [ "$TARGET_DEVICE" == "munch" ] && [ -f "apply-fastcharge-bypass.py" ]; then
+    chmod +x apply-fastcharge-bypass.py
+    python3 apply-fastcharge-bypass.py
+fi
+
 # ------------------------------------------------------------
 # BUILD AOSP
 # ------------------------------------------------------------
@@ -343,12 +349,6 @@ if [ "$TARGET_OS" == "aosp" ] || [ "$TARGET_OS" == "both" ] || [ "$TARGET_OS" ==
     cp out/arch/arm64/boot/Image build_artifacts/aosp/Image
     cp out/arch/arm64/boot/dtb build_artifacts/aosp/dtb
     echo ">>> AOSP Build Done! <<<"
-fi
-
-# Áp dụng bản vá sạc nhanh 67W cho POCO F4 (munch)
-if [ "$TARGET_DEVICE" == "munch" ] && [ -f "apply-fastcharge-bypass.py" ]; then
-    echo ">>> Applying 67W Fast Charge Patch for munch <<<"
-    python3 apply-fastcharge-bypass.py
 fi
 
 # ------------------------------------------------------------
