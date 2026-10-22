@@ -3,7 +3,7 @@
 # Supports: AOSP / Custom ROM, MIUI / HyperOS, & ColorOS / OxygenOS
 # Usage: bash build.sh <target_device> [variant] [target_os]
 #   variant   : ksu (default) | nosusfs | noksu
-#   target_os : aosp (default) | miui | coloros | both
+#   target_os : aosp (default) | miui | coloros | both | all
 
 set -e
 
@@ -22,7 +22,7 @@ if [ -z "$1" ]; then
     echo "Arguments:"
     echo "  target_device : munch, alioth, apollo, lmi, umi, etc."
     echo "  variant       : ksu (default) | nosusfs | noksu"
-    echo "  target_os     : aosp (default) | miui | coloros (or oplus/oos) | both"
+    echo "  target_os     : aosp (default) | miui | coloros (or oplus/oos) | both | all"
     echo ""
     echo "Examples:"
     echo "  bash build.sh munch ksu aosp     # Build AOSP with ReSukiSU + SuSFS"
@@ -34,9 +34,9 @@ if [ -z "$1" ]; then
 fi
 
 # Detect Toolchain (ZyCromerZ Clang 16 > Neutron > Proton)
-ZYC_PATH=$HOME/zyc-clang/bin
-NEUTRON_PATH=$HOME/neutron-clang/bin
-PROTON_PATH=$HOME/proton-clang/proton-clang-20210522/bin
+ZYC_PATH="$HOME/zyc-clang/bin"
+NEUTRON_PATH="$HOME/neutron-clang/bin"
+PROTON_PATH="$HOME/proton-clang/proton-clang-20210522/bin"
 
 if [ -d "$ZYC_PATH" ]; then
     export PATH="$ZYC_PATH:$PATH"
@@ -62,12 +62,6 @@ if ! command -v clang >/dev/null 2>&1; then
     exit 1
 fi
 
-# Prioritize ZyC Clang 16 if available
-if [ -d "$HOME/zyc-clang/bin" ]; then
-    export PATH="$HOME/zyc-clang/bin:$PATH"
-    echo "Using ZyC Clang: [$HOME/zyc-clang/bin]"
-fi
-
 # Enable ccache for fast compiling
 export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
 export CC="ccache gcc"
@@ -78,7 +72,14 @@ echo "CCACHE_DIR: [$CCACHE_DIR]"
 export KBUILD_BUILD_USER="build-user"
 export KBUILD_BUILD_HOST="build-host 4.19.404R"
 
-MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=${OUT_DIR} CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC=$PWD/tools/hostcc HOSTLD=/usr/bin/ld.bfd CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
+# Auto-fallback cho HOSTCC nếu không có tools/hostcc
+if [ -x "$PWD/tools/hostcc" ]; then
+    HOSTCC_BIN="$PWD/tools/hostcc"
+else
+    HOSTCC_BIN="clang"
+fi
+
+MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=${OUT_DIR} CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip HOSTCC=${HOSTCC_BIN} HOSTLD=/usr/bin/ld.bfd CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
 
 if [ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]; then
     echo "Error: arch/arm64/configs/${TARGET_DEVICE}_defconfig not found."
@@ -117,7 +118,7 @@ case "$2" in
         ;;
 esac
 
-# Parse Target OS (aosp, miui, coloros, both)
+# Parse Target OS (aosp, miui, coloros, both, all)
 TARGET_OS="${3:-aosp}"
 case "$TARGET_OS" in
     aosp|miui|both|all) ;;
@@ -132,22 +133,25 @@ echo "Variant       : $VARIANT_TAG"
 echo "Target OS     : $TARGET_OS"
 echo "=========================================================="
 
-# Root Configuration: RKSU / ReSukiSU + SuSFS v2.3.0 (giữ nguyên cấu trúc 3 chế độ (ksu, nosusfs, noksu) như đoạn code bạn vừa gửi nhưng tích hợp thêm toàn bộ các cờ vượt VCB, MB Bank, VNeID )
+# Root Configuration: Multi-KSU (BakaSU / SukiSU-Ultra / KSUN / Midori) + SuSFS + Anti-Detection (VCB, MB Bank, VNeID)
 apply_ksu_config() {
     local CONFIG_FILE="${OUT_DIR}/.config"
 
     if [ "$KSU_ENABLE" -eq 1 ]; then
         if [ "$SUSFS_ENABLE" -eq 1 ]; then
-            echo "[*] Injecting Anti-Detection RKSU / ReSukiSU + SuSFS Configuration into .config..."
+            echo "[*] Injecting Anti-Detection Multi-KSU + SuSFS Configuration into .config..."
             scripts/config --file "$CONFIG_FILE" \
                 -e KSU \
                 -e KSU_SUSFS \
+                -e KSU_MANUAL_HOOK \
+                -e KSU_MULTI_MANAGER_SUPPORT \
+                -e THREAD_INFO_IN_TASK \
+                -e KALLSYMS \
+                -e KALLSYMS_ALL \
                 -d KSU_DEBUG \
                 -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
-                -d KSU_MANUAL_HOOK \
-                -e KSU_MULTI_MANAGER_SUPPORT \
-                -e THREAD_INFO_IN_TASK \
+                -d KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
                 -e KSU_SUSFS_SUS_PATH \
                 -e KSU_SUSFS_SUS_MOUNT \
                 -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
@@ -167,7 +171,6 @@ apply_ksu_config() {
                 -d HAVE_KPROBES \
                 -d KPROBE_EVENTS \
                 -d UPROBE_EVENTS \
-                -d KALLSYMS_ALL \
                 -e SECURITY_SELINUX \
                 -d SECURITY_SELINUX_DEVELOP \
                 -d SECURITY_SELINUX_PERMISSIVE_DONTAUDIT \
@@ -176,12 +179,14 @@ apply_ksu_config() {
                 -d DEVMEM \
                 -d DEVKMEM
         else
-            echo "[*] Injecting KSU (NoSuSFS / Manual Hook) Configuration into .config..."
+            echo "[*] Injecting Anti-Detection KSU (NoSuSFS / Manual Hook) Configuration into .config..."
             scripts/config --file "$CONFIG_FILE" \
                 -e KSU \
                 -e THREAD_INFO_IN_TASK \
                 -e KSU_MULTI_MANAGER_SUPPORT \
                 -e KSU_MANUAL_HOOK \
+                -e KALLSYMS \
+                -e KALLSYMS_ALL \
                 -d KSU_DEBUG \
                 -d KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
                 -d KSU_KPROBES_HOOK \
@@ -199,7 +204,18 @@ apply_ksu_config() {
                 -d KSU_SUSFS_SUS_SU \
                 -d KSU_SUSFS_SUS_OVERLAYFS \
                 -d KSU_DISABLE_MANAGER \
-                -d KSU_DISABLE_POLICY
+                -d KSU_DISABLE_POLICY \
+                -d KPROBES \
+                -d HAVE_KPROBES \
+                -d KPROBE_EVENTS \
+                -d UPROBE_EVENTS \
+                -e SECURITY_SELINUX \
+                -d SECURITY_SELINUX_DEVELOP \
+                -d SECURITY_SELINUX_PERMISSIVE_DONTAUDIT \
+                -d DEBUG_FS \
+                -d PROC_KCORE \
+                -d DEVMEM \
+                -d DEVKMEM
         fi
     else
         echo "[*] Disabling embedded KSU for Pure Clean Kernel..."
@@ -208,11 +224,21 @@ apply_ksu_config() {
             -d KSU_SUSFS \
             -d KSU_KPROBES_HOOK \
             -d KSU_TRACEPOINT_HOOK \
-            -d KSU_MANUAL_HOOK
+            -d KSU_MANUAL_HOOK \
+            -d KPROBES \
+            -d HAVE_KPROBES \
+            -d KPROBE_EVENTS \
+            -d UPROBE_EVENTS \
+            -e SECURITY_SELINUX \
+            -d SECURITY_SELINUX_DEVELOP \
+            -d SECURITY_SELINUX_PERMISSIVE_DONTAUDIT \
+            -d DEBUG_FS \
+            -d PROC_KCORE \
+            -d DEVMEM \
+            -d DEVKMEM
         sed -i '/CONFIG_KSU/d' "$CONFIG_FILE" 2>/dev/null || true
     fi
 }
-
 
 apply_droidspaces_config() {
     echo "Enforcing Droidspaces & Containerization configs..."
@@ -299,6 +325,14 @@ apply_droidspaces_config() {
         -d ANDROID_PARANOID_NETWORK
 }
 
+# Backup anykernel.sh vào anykernel_template trước khi xóa thư mục anykernel/ (phòng khi chạy local)
+mkdir -p anykernel_template
+if [ -f "anykernel/anykernel.sh" ] && [ ! -f "anykernel_template/anykernel.sh" ]; then
+    cp -f anykernel/anykernel.sh anykernel_template/anykernel.sh
+elif [ -f "anykernel.sh" ] && [ ! -f "anykernel_template/anykernel.sh" ]; then
+    cp -f anykernel.sh anykernel_template/anykernel.sh
+fi
+
 echo "Cleaning build directories..."
 rm -rf "${OUT_DIR}/" anykernel/
 rm -rf include/config include/generated .config 2>/dev/null || true
@@ -343,7 +377,9 @@ if [ "$TARGET_OS" == "aosp" ] || [ "$TARGET_OS" == "both" ] || [ "$TARGET_OS" ==
     fi
 
     echo "Compiling DTBs (Extreme UV + OC 683 MHz)..."
-    cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
+    if [ -f "arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi" ]; then
+        cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
+    fi
     rm -rf "${OUT_DIR}/arch/arm64/boot/dts"
     make $MAKE_ARGS dtbs -j$(nproc)
     if [ -f "${OUT_DIR}/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
@@ -358,7 +394,7 @@ if [ "$TARGET_OS" == "aosp" ] || [ "$TARGET_OS" == "both" ] || [ "$TARGET_OS" ==
 fi
 
 # ------------------------------------------------------------
-# BUILD MIUI / HyperOS
+# BUILD MIUI / HyperOS / ColorOS
 # ------------------------------------------------------------
 if [ "$TARGET_OS" == "miui" ] || [ "$TARGET_OS" == "coloros" ] || [ "$TARGET_OS" == "both" ] || [ "$TARGET_OS" == "all" ]; then
     echo ""
@@ -413,7 +449,9 @@ if [ "$TARGET_OS" == "miui" ] || [ "$TARGET_OS" == "coloros" ] || [ "$TARGET_OS"
     fi
 
     echo "Compiling DTBs (Extreme UV + OC 683 MHz)..."
-    cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
+    if [ -f "arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi" ]; then
+        cp -f arch/arm64/boot/dts/gpu_profiles/kona-v2-gpu-extreme.dtsi arch/arm64/boot/dts/vendor/qcom/kona-v2-gpu.dtsi
+    fi
     rm -rf "${OUT_DIR}/arch/arm64/boot/dts"
     make $MAKE_ARGS dtbs -j$(nproc)
     if [ -f "${OUT_DIR}/arch/arm64/boot/dts/vendor/qcom/kona-v2.1.dtb" ]; then
@@ -436,7 +474,7 @@ fi
 # ------------------------------------------------------------
 echo ""
 echo ">>> Packaging AnyKernel3 Flashable Zip <<<"
-rm -rf anykernel/kernels/ anykernel/dtbs/ anykernel/Image anykernel/dtb anykernel/dtbo.img 2>/dev/null
+rm -rf anykernel/kernels/ anykernel/dtbs/ anykernel/Image anykernel/dtb anykernel/dtbo.img 2>/dev/null || true
 
 if [ "$TARGET_OS" == "aosp" ]; then
     mkdir -p anykernel/kernels/aosp/
@@ -463,8 +501,10 @@ else
 fi
 
 # DO NOT include dtbo (preserve panel/touch drivers from ROM)
-rm -f anykernel/dtbo.img anykernel/kernels/dtbo.img anykernel/kernels/*/*.img 2>/dev/null
-cp -f anykernel_template/anykernel.sh anykernel/anykernel.sh
+rm -f anykernel/dtbo.img anykernel/kernels/dtbo.img anykernel/kernels/*/*.img 2>/dev/null || true
+if [ -f "anykernel_template/anykernel.sh" ]; then
+    cp -f anykernel_template/anykernel.sh anykernel/anykernel.sh
+fi
 
 cd anykernel
 
@@ -483,7 +523,9 @@ mkdir -p ../release
 cp -f "$ZIP_FILENAME" ../release/
 mkdir -p ../../release 2>/dev/null || true
 cp -f "$ZIP_FILENAME" ../../release/ 2>/dev/null || true
-cp -f "$ZIP_FILENAME" /home/kiki/Downloads/ 2>/dev/null || true
+if [ -d "/home/kiki/Downloads" ]; then
+    cp -f "$ZIP_FILENAME" /home/kiki/Downloads/ 2>/dev/null || true
+fi
 mv "$ZIP_FILENAME" ../
 cd ..
 
