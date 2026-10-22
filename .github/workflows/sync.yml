@@ -8,19 +8,25 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Cho phép GitHub Actions quyền ghi vào repository của bạn
     steps:
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          fetch-depth: 0
           submodules: false
+          token: ${{ secrets.GITHUB_TOKEN }} # Dùng token mặc định có sẵn của GitHub
 
-      - name: Sync upstream changes
-        uses: wei/git-sync@v3
-        with:
-          source_repo: "https://github.com/Luckyfr1945/kernel_xiaomi_sm8250_mod.git"
-          source_branch: "ki-kernel-clean-stable"
-          destination_repo: "https://github.com/strong568/kernel_xiaomi_sm8250_mod.git"
-          destination_branch: "ki-kernel-clean-stable"
-          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Hoặc nếu dùng Personal Access Token, bạn có thể truyền token tuỳ theo cách cấu hình của action này.
+      - name: Set Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Pull and Push upstream changes
+        run: |
+          git remote add upstream https://github.com/Luckyfr1945/kernel_xiaomi_sm8250_mod.git
+          git fetch upstream ki-kernel-clean-stable
+          git checkout ki-kernel-clean-stable || git checkout -b ki-kernel-clean-stable upstream/ki-kernel-clean-stable
+          git merge upstream/ki-kernel-clean-stable --no-edit
+          git push origin ki-kernel-clean-stable
