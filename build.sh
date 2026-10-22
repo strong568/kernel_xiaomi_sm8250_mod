@@ -132,7 +132,7 @@ echo "Target OS     : $TARGET_OS"
 echo "=========================================================="
 
 apply_ksu_config() {
-    local CONFIG_FILE="${OUT_DIR}/.config"
+    local CONFIG_FILE="${OUT_DIR:-out}/.config"
 
     if [ "$KSU_ENABLE" -eq 1 ]; then
         if [ "$SUSFS_ENABLE" -eq 1 ]; then
@@ -143,7 +143,7 @@ apply_ksu_config() {
                 -d KSU_DEBUG \
                 -d KSU_KPROBES_HOOK \
                 -d KSU_TRACEPOINT_HOOK \
-                -d KSU_MANUAL_HOOK \
+                -e KSU_MANUAL_HOOK \
                 -e KSU_MULTI_MANAGER_SUPPORT \
                 -e THREAD_INFO_IN_TASK \
                 -e KSU_SUSFS_SUS_PATH \
@@ -165,7 +165,8 @@ apply_ksu_config() {
                 -d HAVE_KPROBES \
                 -d KPROBE_EVENTS \
                 -d UPROBE_EVENTS \
-                -d KALLSYMS_ALL \
+                -e KALLSYMS \
+                -e KALLSYMS_ALL \
                 -e SECURITY_SELINUX \
                 -d SECURITY_SELINUX_DEVELOP \
                 -d SECURITY_SELINUX_PERMISSIVE_DONTAUDIT \
@@ -197,7 +198,9 @@ apply_ksu_config() {
                 -d KSU_SUSFS_SUS_SU \
                 -d KSU_SUSFS_SUS_OVERLAYFS \
                 -d KSU_DISABLE_MANAGER \
-                -d KSU_DISABLE_POLICY
+                -d KSU_DISABLE_POLICY \
+                -e KALLSYMS \
+                -e KALLSYMS_ALL
         fi
     else
         echo "[*] Disabling embedded KSU for Pure Clean Kernel..."
@@ -212,8 +215,9 @@ apply_ksu_config() {
 }
 
 apply_droidspaces_config() {
+    local CONFIG_FILE="${OUT_DIR:-out}/.config"
     echo "Enforcing Droidspaces & Containerization configs..."
-    scripts/config --file out/.config \
+    scripts/config --file "$CONFIG_FILE" \
         -e SYSVIPC \
         -e POSIX_MQUEUE \
         -e NAMESPACES \
@@ -296,6 +300,7 @@ apply_droidspaces_config() {
         -d ANDROID_PARANOID_NETWORK
 }
 
+
 echo "Cleaning build directories..."
 rm -rf out/ anykernel/
 rm -rf include/config include/generated .config 2>/dev/null || true
@@ -370,7 +375,7 @@ if [ "$TARGET_OS" == "miui" ] || [ "$TARGET_OS" == "coloros" ] || [ "$TARGET_OS"
     apply_droidspaces_config
 
     # Enable MIUI hardware drivers, disable obsolete/hanging daemons
-    scripts/config --file out/.config \
+    scripts/config --file "${OUT_DIR:-out}/.config" \
         -e EROFS_FS \
         -e EROFS_FS_XATTR \
         -e EROFS_FS_POSIX_ACL \
