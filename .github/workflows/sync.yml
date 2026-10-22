@@ -13,6 +13,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          submodules: false
 
       - name: Sync upstream changes
         uses: wei/git-sync@v3
