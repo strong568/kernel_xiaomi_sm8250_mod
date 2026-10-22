@@ -1,0 +1,26 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    - cron: '0 */24 * * *' # Tự động kiểm tra mỗi 6 tiếng (hoặc bạn chỉnh lại thời gian)
+  workflow_dispatch: # Cho phép bấm nút Sync thủ công trên web GitHub
+
+jobs:
+  sync:
+  runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Sync upstream changes
+        uses: autowert/git-sync-action@v3 # Hoặc dùng các action sync phổ biến khác
+        with:
+          source_repo: "https://github.com/Luckyfr1945/kernel_xiaomi_sm8250_mod.git"
+          source_branch: "ki-kernel-clean-stable"
+          destination_repo: "https://github.com/strong568/kernel_xiaomi_sm8250_mod.git"
+          destination_branch: "ki-kernel-clean-stable"
+          git_token: ${{ secrets.ACCESS_TOKEN }} # Cần tạo Personal Access Token nếu repo private
+          
