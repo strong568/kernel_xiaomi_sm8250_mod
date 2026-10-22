@@ -6,7 +6,7 @@ on:
       kernel_branch:
         description: 'Chọn nhánh (Branch) để build kernel'
         required: true
-        default: 'ki-kernel-clean-stable'
+        default: 'Ki-ker-munch-67w'
         type: string
       target_device:
         description: 'Target Device (munch, alioth, apollo, lmi, umi...)'
