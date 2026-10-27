@@ -1,6 +1,7 @@
 /**
  * Ki-Optimizer WebUI Controller
  * Native JavaScript Bridge for KernelSU WebView
+ * Clean, Emoticon-free, Ultra-Responsive UI
  */
 
 let callbackCounter = 0;
@@ -31,8 +32,9 @@ function exec(command, options = {}) {
   });
 }
 
-// Toast notification helper
-function showToast(message) {
+// Minimalist Toast notification helper
+let toastTimeout = null;
+function showToast(message, isError = false) {
   if (typeof ksu !== "undefined" && ksu.toast) {
     ksu.toast(message);
   }
@@ -41,14 +43,23 @@ function showToast(message) {
   const toastText = document.getElementById("toast-text");
   if (toastEl && toastText) {
     toastText.textContent = message;
+    toastEl.classList.toggle("toast-error", !!isError);
     toastEl.classList.add("show");
-    setTimeout(() => {
+    
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
       toastEl.classList.remove("show");
-    }, 2500);
+    }, 2200);
   }
 }
 
-// UI Elements
+// UI Elements - Tabs
+const tabKernel = document.getElementById("tab-kernel");
+const tabDaemon = document.getElementById("tab-daemon");
+const panelKernel = document.getElementById("panel-kernel");
+const panelDaemon = document.getElementById("panel-daemon");
+
+// Header Telemetry
 const elUnsupportedModal = document.getElementById("unsupported-modal");
 const elModalKernelVer = document.getElementById("modal-kernel-ver");
 
@@ -57,11 +68,12 @@ const elCurBattery = document.getElementById("cur-battery");
 const elCurTemp = document.getElementById("cur-temp");
 const elDeviceModel = document.getElementById("device-model");
 
+// Profiles
 const cardProf0 = document.getElementById("card-prof-0");
 const cardProf1 = document.getElementById("card-prof-1");
 const cardProf2 = document.getElementById("card-prof-2");
 
-// Feature Rows
+// Kernel Feature Rows
 const rowMglru = document.getElementById("row-mglru");
 const badgeMglru = document.getElementById("badge-mglru");
 const mglruBtns = [
@@ -105,8 +117,64 @@ const badgeTcp = document.getElementById("badge-tcp");
 
 const btnApply = document.getElementById("btn-apply");
 
+// Daemon Elements (Tab 2)
+const elDaemonIndicator = document.getElementById("daemon-indicator");
+const elDaemonStatusBadge = document.getElementById("daemon-status-badge");
+const elDaemonPidBadge = document.getElementById("daemon-pid-badge");
+const elDaemonFgBadge = document.getElementById("daemon-fg-badge");
+const toggleDaemonMaster = document.getElementById("toggle-daemon-master");
+const selectGameProf = document.getElementById("select-game-prof");
+const selectExitProf = document.getElementById("select-exit-prof");
+const badgeGameProf = document.getElementById("badge-game-prof");
+const badgeExitProf = document.getElementById("badge-exit-prof");
+const toggleAutoBypass = document.getElementById("toggle-auto-bypass");
+const badgeAutoBypass = document.getElementById("badge-auto-bypass");
+const toggleAutoMglru = document.getElementById("toggle-auto-mglru");
+const badgeAutoMglru = document.getElementById("badge-auto-mglru");
+const gamesCountEl = document.getElementById("games-count");
+const inputNewGame = document.getElementById("input-new-game");
+const btnAddGame = document.getElementById("btn-add-game");
+const gamesChipsList = document.getElementById("games-chips-list");
+
 let currentProfile = 1;
 let isKiKernelActive = true;
+let activeTab = "panel-kernel";
+
+// Interaction tracking to prevent background telemetry stutter
+let isUserInteracting = false;
+let interactTimer = null;
+function flagUserInteraction() {
+  isUserInteracting = true;
+  if (interactTimer) clearTimeout(interactTimer);
+  interactTimer = setTimeout(() => {
+    isUserInteracting = false;
+  }, 1000);
+}
+
+document.addEventListener("touchstart", flagUserInteraction, { passive: true });
+document.addEventListener("touchmove", flagUserInteraction, { passive: true });
+document.addEventListener("pointerdown", flagUserInteraction, { passive: true });
+
+// Tab Switcher
+function switchTab(target) {
+  activeTab = target;
+  if (target === "panel-daemon") {
+    tabKernel?.classList.remove("active");
+    tabKernel?.setAttribute("aria-selected", "false");
+    tabDaemon?.classList.add("active");
+    tabDaemon?.setAttribute("aria-selected", "true");
+    panelKernel?.classList.add("hidden");
+    panelDaemon?.classList.remove("hidden");
+    refreshDaemonState();
+  } else {
+    tabDaemon?.classList.remove("active");
+    tabDaemon?.setAttribute("aria-selected", "false");
+    tabKernel?.classList.add("active");
+    tabKernel?.setAttribute("aria-selected", "true");
+    panelDaemon?.classList.add("hidden");
+    panelKernel?.classList.remove("hidden");
+  }
+}
 
 // Helper to configure feature row support
 function updateFeatureRow(row, input, badge, isSupported, isEnabled, labelOn, labelOff) {
@@ -148,31 +216,34 @@ function setActiveProfileUI(profileId) {
     cardProf0?.setAttribute("aria-pressed", "true");
     if (elCurProfile) {
       elCurProfile.textContent = "BATTERY";
-      elCurProfile.style.color = "var(--accent-green)";
+      elCurProfile.style.color = "var(--accent)";
     }
   } else if (currentProfile === 2) {
     cardProf2?.classList.add("active");
     cardProf2?.setAttribute("aria-pressed", "true");
     if (elCurProfile) {
       elCurProfile.textContent = "TURBO";
-      elCurProfile.style.color = "var(--accent-green)";
+      elCurProfile.style.color = "var(--accent)";
     }
   } else {
     cardProf1?.classList.add("active");
     cardProf1?.setAttribute("aria-pressed", "true");
     if (elCurProfile) {
       elCurProfile.textContent = "BALANCED";
-      elCurProfile.style.color = "var(--accent-green)";
+      elCurProfile.style.color = "var(--accent)";
     }
   }
 }
 
-// Instant Profile Switcher (Fixes UI mental / reverting back to previous profile)
+// Instant Optimistic Profile Switcher
 async function setProfileInstant(profileId) {
   if (!isKiKernelActive) return;
   const id = parseInt(profileId, 10);
+  
+  // Instant visual update (0ms latency feedback)
   setActiveProfileUI(id);
   const names = ["Battery Saver", "Balanced", "Turbo Gaming"];
+  showToast(`Switched to ${names[id]} profile`);
 
   try {
     await exec(`
@@ -183,9 +254,9 @@ async function setProfileInstant(profileId) {
         sed -i -E "s/^KI_PROFILE=.*/KI_PROFILE=${id}/" "$CONF" 2>/dev/null
       fi
     `);
-    showToast(`✔ Switched to ${names[id]} profile`);
   } catch (err) {
     console.error("setProfileInstant error:", err);
+    showToast("Failed to switch profile", true);
   }
 }
 
@@ -206,244 +277,237 @@ function setMglruUI(mode, isSupported = true) {
   mglruBtns.forEach(btn => {
     if (btn) {
       btn.disabled = false;
-      const btnMode = parseInt(btn.dataset.mode, 10);
-      btn.classList.toggle("active", btnMode === currentMglruMode);
+      const bMode = parseInt(btn.dataset.mode, 10);
+      btn.classList.toggle("active", bMode === currentMglruMode);
     }
   });
 
   if (badgeMglru) {
     badgeMglru.classList.remove("is-unsupported");
-    if (currentMglruMode === 0) {
+    if (currentMglruMode === 7) {
+      badgeMglru.textContent = "Gaming Turbo (0x0007)";
+      badgeMglru.classList.remove("is-off");
+    } else if (currentMglruMode === 1) {
+      badgeMglru.textContent = "Standard (0x0001)";
+      badgeMglru.classList.remove("is-off");
+    } else {
       badgeMglru.textContent = "Disabled";
       badgeMglru.classList.add("is-off");
-    } else if (currentMglruMode === 1) {
-      badgeMglru.textContent = "Standard";
-      badgeMglru.classList.remove("is-off");
-    } else if (currentMglruMode === 7) {
-      badgeMglru.textContent = "Gaming Turbo";
-      badgeMglru.classList.remove("is-off");
     }
   }
 }
 
-// Read current system and kernel state (Executed on initial load and manual Apply)
-async function refreshState() {
-  const checkCmd = `
-    k_ver="\$(uname -r)"
-    is_ki=0
-    echo "\$k_ver" | grep -qi ki-kernel && is_ki=1 || [ -e /proc/ki_profile ] && is_ki=1
-
-    prof=\$(cat /sys/kernel/ki_profile/mode 2>/dev/null || cut -d" " -f1 /proc/ki_profile 2>/dev/null || echo 1)
-
-    mglru_sup=0; ([ -e /sys/kernel/mm/lru_gen/enabled ] || [ -e /proc/mglru ]) && mglru_sup=1
-    mglru_raw=\$(cat /sys/kernel/mm/lru_gen/enabled 2>/dev/null || echo 0)
-    mglru_mode=0
-    if [ "\$mglru_raw" = "0x0007" ] || [ "\$mglru_raw" = "0x0003" ] || [ "\$mglru_raw" = "7" ] || [ "\$mglru_raw" = "3" ]; then
-      mglru_mode=7
-    elif [ "\$mglru_raw" = "0x0001" ] || [ "\$mglru_raw" = "1" ]; then
-      mglru_mode=1
-    else
-      mglru_mode=0
-    fi
-
-    bypass_sup=0; ([ -e /proc/bypass_charging ] || [ -e /sys/class/power_supply/battery/bypass_charging ]) && bypass_sup=1
-    bypass_en=\$(cat /proc/bypass_charging 2>/dev/null || cat /sys/class/power_supply/battery/bypass_charging 2>/dev/null || echo 0)
-
-    fc_sup=0; ([ -e /sys/kernel/fast_charge/force_fast_charge ] || [ -e /sys/kernel/fast_charge/screen_on_fast_charge ]) && fc_sup=1
-    fc_en=\$(cat /sys/kernel/fast_charge/force_fast_charge 2>/dev/null || echo 0)
-
-    sbat_sup=0; [ -e /sys/kernel/ki_profile/screen_off_battery ] && sbat_sup=1
-    sbat_en=\$(cat /sys/kernel/ki_profile/screen_off_battery 2>/dev/null || echo 1)
-
-    dfs_sup=0; ([ -e /sys/kernel/dyn_fsync/Dyn_fsync_active ] || [ -e /sys/kernel/dyn_fsync/dyn_fsync_active ]) && dfs_sup=1
-    dfs_en=\$(cat /sys/kernel/dyn_fsync/Dyn_fsync_active 2>/dev/null || cat /sys/kernel/dyn_fsync/dyn_fsync_active 2>/dev/null || echo 0)
-
-    throt_sup=0; [ -e /sys/kernel/ki_profile/thermal_throttle ] && throt_sup=1
-    throt_en=\$(cat /sys/kernel/ki_profile/thermal_throttle 2>/dev/null || echo 1)
-
-    wl_sup=0; ([ -e /sys/kernel/wakelock_blocker/enabled ] || [ -e /sys/devices/virtual/misc/boeffla_wakelock_blocker/wakelock_blocker ]) && wl_sup=1
-    wl_en=\$(cat /sys/kernel/wakelock_blocker/enabled 2>/dev/null || ([ -s /sys/devices/virtual/misc/boeffla_wakelock_blocker/wakelock_blocker ] && echo 1 || echo 0))
-
-    tcp=\$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || echo cubic)
-    swap=\$(cat /proc/sys/vm/swappiness 2>/dev/null || echo 80)
-
-    b_cap=\$(cat /sys/class/power_supply/battery/capacity 2>/dev/null || echo 0)
-    b_tmp=\$(cat /sys/class/power_supply/battery/temp 2>/dev/null || echo 300)
-    model=\$(getprop ro.product.model 2>/dev/null || echo munch)
-
-    echo "\$is_ki|\$prof|\$mglru_sup|\$mglru_mode|\$mglru_raw|\$bypass_sup|\$bypass_en|\$fc_sup|\$fc_en|\$sbat_sup|\$sbat_en|\$dfs_sup|\$dfs_en|\$throt_sup|\$throt_en|\$tcp|\$swap|\$b_cap|\$b_tmp|\$k_ver|\$model|\$wl_sup|\$wl_en"
-  `;
-
+// Live Battery & Temp Telemetry (Adaptive & Non-blocking)
+async function updateTelemetry() {
+  if (!isKiKernelActive || isUserInteracting) return;
   try {
-    const res = await exec(checkCmd);
-    if (!res || !res.stdout) return;
-
-    const parts = res.stdout.trim().split("|");
-    if (parts.length >= 21) {
-      const isKi = parts[0] === "1";
-      isKiKernelActive = isKi;
-
-      const pKernel = parts[19].trim();
-      const pModel = parts[20].trim();
-
-      // Incompatible Kernel Guard
-      if (!isKi) {
-        if (elUnsupportedModal) {
-          elUnsupportedModal.classList.remove("hidden");
-          elModalKernelVer.textContent = pKernel || "Unsupported Kernel";
-        }
-        btnApply.disabled = true;
-        btnApply.style.opacity = "0.5";
-        return;
-      } else {
-        if (elUnsupportedModal) {
-          elUnsupportedModal.classList.add("hidden");
-        }
-        btnApply.disabled = false;
-        btnApply.style.opacity = "1";
-      }
-
-      const pProfile = parts[1];
-      const pMglruSup = parts[2] === "1";
-      const pMglruMode = parts[3];
-
-      const pBypassSup = parts[5] === "1";
-      const pBypassEn = parts[6] === "1";
-
-      const pFcSup = parts[7] === "1";
-      const pFcEn = parts[8] === "1";
-
-      const pSbatSup = parts[9] === "1";
-      const pSbatEn = parts[10] === "1";
-
-      const pDfsSup = parts[11] === "1";
-      const pDfsEn = parts[12] === "1";
-
-      const pThrotSup = parts[13] === "1";
-      const pThrotEn = parts[14] === "1";
-
-      const pTcp = parts[15].trim();
-      const pSwappiness = parts[16].trim();
-      const pBatCap = parts[17].trim();
-      const pBatTempRaw = parseInt(parts[18].trim(), 10) || 300;
-
-      const pWlSup = parts[21] === "1";
-      const pWlEn = parts[22] === "1";
-
-      // Set Profile
-      setActiveProfileUI(pProfile);
-
-      // Set MGLRU Mode
-      setMglruUI(pMglruMode, pMglruSup);
-
-      // Feature Compatibility Updates
-      updateFeatureRow(rowBypass, toggleBypass, badgeBypass, pBypassSup, pBypassEn, "Active", "Disabled");
-      updateFeatureRow(rowFastCharge, toggleFastCharge, badgeFastCharge, pFcSup, pFcEn, "Active", "Disabled");
-      updateFeatureRow(rowScreenOff, toggleScreenOff, badgeScreenOff, pSbatSup, pSbatEn, "Active", "Disabled");
-      updateFeatureRow(rowWakelock, toggleWakelock, badgeWakelock, pWlSup, pWlEn, "Active", "Disabled");
-      updateFeatureRow(rowDynFsync, toggleDynFsync, badgeDynFsync, pDfsSup, pDfsEn, "Active", "Disabled");
-      updateFeatureRow(rowThermal, toggleThermal, badgeThermal, pThrotSup, pThrotEn, "Active", "Disabled");
-
-      // Swappiness
-      if (pSwappiness && rangeSwappiness) {
-        rangeSwappiness.value = pSwappiness;
-        valSwappiness.textContent = pSwappiness;
-      }
-
-      // TCP
-      if (badgeTcp) badgeTcp.textContent = "Supported";
-      if (["bbr", "westwood", "cubic"].includes(pTcp) && selectTcp) {
-        selectTcp.value = pTcp;
-      }
-
-      // Live Battery & Device info
-      elCurBattery.textContent = `${pBatCap}%`;
-      const tempC = Math.round(pBatTempRaw / 10);
-      elCurTemp.textContent = `${tempC}°C`;
-      if (tempC >= 42) {
-        elCurTemp.style.color = "var(--danger)";
-      } else if (tempC >= 38) {
-        elCurTemp.style.color = "var(--warning)";
-      } else {
-        elCurTemp.style.color = "var(--accent-green)";
-      }
-
-      if (pModel) {
-        elDeviceModel.textContent = `${pModel} (${pKernel.split("-")[0]})`;
+    const { stdout } = await exec(`
+      cat /sys/class/power_supply/battery/capacity 2>/dev/null || echo ""
+      cat /sys/class/power_supply/battery/temp 2>/dev/null || echo ""
+      cat /sys/kernel/ki_profile/mode 2>/dev/null || cut -d' ' -f1 /proc/ki_profile 2>/dev/null || echo ""
+    `);
+    const lines = stdout.trim().split("\n");
+    if (lines[0] && elCurBattery) {
+      elCurBattery.textContent = `${lines[0].trim()}%`;
+    }
+    if (lines[1] && elCurTemp) {
+      const rawTemp = parseInt(lines[1].trim(), 10);
+      if (!isNaN(rawTemp)) {
+        elCurTemp.textContent = `${(rawTemp / 10).toFixed(1)}°C`;
       }
     }
+    if (lines[2]) {
+      const liveProf = parseInt(lines[2].trim(), 10);
+      if (!isNaN(liveProf) && liveProf !== currentProfile) {
+        setActiveProfileUI(liveProf);
+      }
+    }
+
+    if (activeTab === "panel-daemon") {
+      refreshDaemonState();
+    }
+  } catch (err) {
+    console.warn("updateTelemetry failed:", err);
+  }
+}
+
+// Fetch Full Initial State from Device
+async function refreshState() {
+  try {
+    const { stdout } = await exec(`
+      KERNEL="$(uname -r)"
+      IS_KI=0
+      if echo "$KERNEL" | grep -qi "ki-kernel" || [ -f /proc/ki_profile ] || [ -d /sys/kernel/ki_profile ]; then
+        IS_KI=1
+      fi
+
+      MODEL="$(getprop ro.product.model 2>/dev/null || echo 'POCO F4')"
+      BATT="$(cat /sys/class/power_supply/battery/capacity 2>/dev/null || echo '--')"
+      TEMP="$(cat /sys/class/power_supply/battery/temp 2>/dev/null || echo '--')"
+      
+      PROF="$(cat /sys/kernel/ki_profile/mode 2>/dev/null || cut -d' ' -f1 /proc/ki_profile 2>/dev/null || echo '1')"
+
+      # Check feature availability
+      HAS_MGLRU=0
+      RAW_MGLRU="0"
+      if [ -f /sys/kernel/mm/lru_gen/enabled ] || [ -f /proc/mglru ]; then
+        HAS_MGLRU=1
+        RAW_MGLRU="$(cat /sys/kernel/mm/lru_gen/enabled 2>/dev/null || cat /proc/mglru 2>/dev/null || echo '0')"
+      fi
+
+      HAS_BYPASS=0
+      VAL_BYPASS=0
+      if [ -f /proc/bypass_charging ] || [ -f /sys/class/power_supply/battery/bypass_charging ]; then
+        HAS_BYPASS=1
+        VAL_BYPASS="$(cat /proc/bypass_charging 2>/dev/null || cat /sys/class/power_supply/battery/bypass_charging 2>/dev/null || echo '0')"
+      fi
+
+      HAS_FC=0
+      VAL_FC=0
+      if [ -f /sys/kernel/fast_charge/force_fast_charge ] || [ -f /sys/kernel/fast_charge/screen_on_fast_charge ]; then
+        HAS_FC=1
+        VAL_FC="$(cat /sys/kernel/fast_charge/force_fast_charge 2>/dev/null || echo '0')"
+      fi
+
+      HAS_SCREENOFF=0
+      VAL_SCREENOFF=0
+      if [ -f /sys/kernel/ki_profile/screen_off_battery ]; then
+        HAS_SCREENOFF=1
+        VAL_SCREENOFF="$(cat /sys/kernel/ki_profile/screen_off_battery 2>/dev/null || echo '0')"
+      fi
+
+      HAS_WAKELOCK=0
+      VAL_WAKELOCK=0
+      if [ -f /sys/kernel/wakelock_blocker/enabled ] || [ -f /sys/devices/virtual/misc/boeffla_wakelock_blocker/wakelock_blocker ]; then
+        HAS_WAKELOCK=1
+        VAL_WAKELOCK="$(cat /sys/kernel/wakelock_blocker/enabled 2>/dev/null || cat /sys/devices/virtual/misc/boeffla_wakelock_blocker/wakelock_blocker 2>/dev/null || echo '0')"
+      fi
+
+      HAS_DYNSYNC=0
+      VAL_DYNSYNC=0
+      if [ -f /sys/kernel/dyn_fsync/Dyn_fsync_active ] || [ -f /sys/kernel/dyn_fsync/dyn_fsync_active ]; then
+        HAS_DYNSYNC=1
+        VAL_DYNSYNC="$(cat /sys/kernel/dyn_fsync/Dyn_fsync_active 2>/dev/null || cat /sys/kernel/dyn_fsync/dyn_fsync_active 2>/dev/null || echo '0')"
+      fi
+
+      HAS_THERMAL=0
+      VAL_THERMAL=1
+      if [ -f /sys/kernel/ki_profile/thermal_throttle ]; then
+        HAS_THERMAL=1
+        VAL_THERMAL="$(cat /sys/kernel/ki_profile/thermal_throttle 2>/dev/null || echo '1')"
+      fi
+
+      VAL_SWAP="$(cat /proc/sys/vm/swappiness 2>/dev/null || echo '130')"
+      VAL_TCP="$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || echo 'cubic')"
+
+      echo "IS_KI=$IS_KI"
+      echo "KERNEL=$KERNEL"
+      echo "MODEL=$MODEL"
+      echo "BATT=$BATT"
+      echo "TEMP=$TEMP"
+      echo "PROF=$PROF"
+      echo "HAS_MGLRU=$HAS_MGLRU"
+      echo "RAW_MGLRU=$RAW_MGLRU"
+      echo "HAS_BYPASS=$HAS_BYPASS"
+      echo "VAL_BYPASS=$VAL_BYPASS"
+      echo "HAS_FC=$HAS_FC"
+      echo "VAL_FC=$VAL_FC"
+      echo "HAS_SCREENOFF=$HAS_SCREENOFF"
+      echo "VAL_SCREENOFF=$VAL_SCREENOFF"
+      echo "HAS_WAKELOCK=$HAS_WAKELOCK"
+      echo "VAL_WAKELOCK=$VAL_WAKELOCK"
+      echo "HAS_DYNSYNC=$HAS_DYNSYNC"
+      echo "VAL_DYNSYNC=$VAL_DYNSYNC"
+      echo "HAS_THERMAL=$HAS_THERMAL"
+      echo "VAL_THERMAL=$VAL_THERMAL"
+      echo "VAL_SWAP=$VAL_SWAP"
+      echo "VAL_TCP=$VAL_TCP"
+    `);
+
+    const props = {};
+    stdout.trim().split("\n").forEach(line => {
+      const idx = line.indexOf("=");
+      if (idx > -1) {
+        props[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+      }
+    });
+
+    if (props["IS_KI"] === "0") {
+      isKiKernelActive = false;
+      if (elUnsupportedModal) {
+        elUnsupportedModal.classList.remove("hidden");
+        if (elModalKernelVer) elModalKernelVer.textContent = props["KERNEL"] || "Unknown";
+      }
+      return;
+    }
+
+    if (elDeviceModel && props["MODEL"]) elDeviceModel.textContent = props["MODEL"];
+    if (elCurBattery && props["BATT"]) elCurBattery.textContent = `${props["BATT"]}%`;
+    if (elCurTemp && props["TEMP"] && props["TEMP"] !== "--") {
+      const t = parseInt(props["TEMP"], 10);
+      if (!isNaN(t)) elCurTemp.textContent = `${(t / 10).toFixed(1)}°C`;
+    }
+
+    setActiveProfileUI(props["PROF"] || 1);
+
+    if (props["HAS_MGLRU"] === "1") {
+      let mMode = 0;
+      const raw = props["RAW_MGLRU"] || "0";
+      if (raw.includes("7") || raw.includes("0x0007")) mMode = 7;
+      else if (raw.includes("1") || raw.includes("0x0001")) mMode = 1;
+      setMglruUI(mMode, true);
+    } else {
+      setMglruUI(0, false);
+    }
+
+    updateFeatureRow(rowBypass, toggleBypass, badgeBypass, props["HAS_BYPASS"] === "1", props["VAL_BYPASS"] === "1", "Active", "Off");
+    updateFeatureRow(rowFastCharge, toggleFastCharge, badgeFastCharge, props["HAS_FC"] === "1", props["VAL_FC"] === "1", "Active", "Off");
+    updateFeatureRow(rowScreenOff, toggleScreenOff, badgeScreenOff, props["HAS_SCREENOFF"] === "1", props["VAL_SCREENOFF"] === "1", "Active", "Off");
+    updateFeatureRow(rowWakelock, toggleWakelock, badgeWakelock, props["HAS_WAKELOCK"] === "1", props["VAL_WAKELOCK"] === "1", "Active", "Off");
+    updateFeatureRow(rowDynFsync, toggleDynFsync, badgeDynFsync, props["HAS_DYNSYNC"] === "1", props["VAL_DYNSYNC"] === "1", "Active", "Off");
+    updateFeatureRow(rowThermal, toggleThermal, badgeThermal, props["HAS_THERMAL"] === "1", props["VAL_THERMAL"] === "1", "Active", "Bypass");
+
+    if (rangeSwappiness && props["VAL_SWAP"]) {
+      rangeSwappiness.value = props["VAL_SWAP"];
+      if (valSwappiness) valSwappiness.textContent = props["VAL_SWAP"];
+    }
+
+    if (selectTcp && props["VAL_TCP"]) {
+      selectTcp.value = props["VAL_TCP"];
+      if (badgeTcp) badgeTcp.textContent = props["VAL_TCP"];
+    }
+
+    refreshDaemonState();
   } catch (err) {
     console.error("refreshState error:", err);
   }
 }
 
-// Telemetry Poller (Only updates live sensor numbers, never overwrites user controls)
-async function updateTelemetry() {
-  if (!isKiKernelActive) return;
-  try {
-    const res = await exec(`
-      b_cap=\$(cat /sys/class/power_supply/battery/capacity 2>/dev/null || echo 0)
-      b_tmp=\$(cat /sys/class/power_supply/battery/temp 2>/dev/null || echo 300)
-      echo "\$b_cap|\$b_tmp"
-    `);
-    if (!res || !res.stdout) return;
-    const parts = res.stdout.trim().split("|");
-    if (parts.length >= 2) {
-      const pBatCap = parts[0].trim();
-      const pBatTempRaw = parseInt(parts[1].trim(), 10) || 300;
-      elCurBattery.textContent = `${pBatCap}%`;
-      const tempC = Math.round(pBatTempRaw / 10);
-      elCurTemp.textContent = `${tempC}°C`;
-      if (tempC >= 42) {
-        elCurTemp.style.color = "var(--danger)";
-      } else if (tempC >= 38) {
-        elCurTemp.style.color = "var(--warning)";
-      } else {
-        elCurTemp.style.color = "var(--accent-green)";
-      }
-    }
-  } catch (err) {
-    console.error("updateTelemetry error:", err);
-  }
-}
-
-// Apply All Changes to Kernel & Update /sdcard/ki_optimizer.conf
+// Apply & Persist Kernel Settings (Tab 1)
 async function applyChanges(silent = false) {
-  if (!isKiKernelActive) {
-    showToast("❌ Cannot apply: Incompatible kernel detected!");
-    return;
-  }
+  if (!isKiKernelActive) return;
 
   const prof = currentProfile;
   const mglru = currentMglruMode;
-  const bypass = toggleBypass?.checked ? "1" : "0";
-  const fastcharge = toggleFastCharge?.checked ? "1" : "0";
-  const screenoff = toggleScreenOff?.checked ? "1" : "0";
-  const wakelock = toggleWakelock?.checked ? "1" : "0";
-  const dynfsync = toggleDynFsync?.checked ? "1" : "0";
-  const thermal = toggleThermal?.checked ? "1" : "0";
-  const swap = rangeSwappiness?.value || "80";
-  const tcp = selectTcp?.value || "bbr";
+  const bypass = toggleBypass?.checked ? 1 : 0;
+  const fastcharge = toggleFastCharge?.checked ? 1 : 0;
+  const screenoff = toggleScreenOff?.checked ? 1 : 0;
+  const wakelock = toggleWakelock?.checked ? 1 : 0;
+  const dynfsync = toggleDynFsync?.checked ? 1 : 0;
+  const thermal = toggleThermal?.checked ? 1 : 0;
+  const swap = rangeSwappiness ? rangeSwappiness.value : 130;
+  const tcp = selectTcp ? selectTcp.value : "cubic";
 
-  // Single shell payload for maximum speed & atomic save
   const script = `
-    # 1. Apply CPU Profile
+    # 1. Apply Profile
     echo ${prof} > /proc/ki_profile 2>/dev/null
     echo ${prof} > /sys/kernel/ki_profile/mode 2>/dev/null
 
     # 2. Apply MGLRU
-    if [ "${mglru}" = "7" ]; then
-      echo 1 > /proc/mglru 2>/dev/null
-      echo 0x0007 > /sys/kernel/mm/lru_gen/enabled 2>/dev/null
-    elif [ "${mglru}" = "1" ]; then
-      echo 0x0001 > /proc/mglru 2>/dev/null
-      echo 0x0001 > /sys/kernel/mm/lru_gen/enabled 2>/dev/null
-    else
-      echo 0 > /proc/mglru 2>/dev/null
-      echo 0x0000 > /sys/kernel/mm/lru_gen/enabled 2>/dev/null
-    fi
+    echo ${mglru} > /proc/mglru 2>/dev/null
+    echo ${mglru} > /sys/kernel/mm/lru_gen/enabled 2>/dev/null
 
-    # 3. Apply Bypass Charging (Direct Wall Power, keep ICL intact)
+    # 3. Apply Bypass Charging
     echo ${bypass} > /proc/bypass_charging 2>/dev/null
     echo ${bypass} > /sys/class/power_supply/battery/bypass_charging 2>/dev/null
 
@@ -498,15 +562,204 @@ async function applyChanges(silent = false) {
     await exec(script);
     if (!silent) {
       const profName = prof === 0 ? "Battery Saver" : prof === 2 ? "Turbo Gaming" : "Balanced";
-      showToast(`✔ ${profName} profile & tweaks applied!`);
+      showToast(`${profName} profile & tweaks applied`);
     }
   } catch (err) {
     console.error("applyChanges error:", err);
-    showToast("❌ Failed to apply settings. Check kernel support.");
+    showToast("Failed to apply settings. Check kernel support", true);
   }
 }
 
-// Event Listeners
+// ==========================================
+// KI-DAEMON CONTROLLER FUNCTIONS (TAB 2)
+// ==========================================
+
+async function refreshDaemonState() {
+  try {
+    const { stdout } = await exec(`
+      if command -v ki_daemon >/dev/null 2>&1; then
+        ki_daemon status
+      elif [ -x "/data/adb/modules/ki_optimizer/bin/ki_daemon" ]; then
+        /data/adb/modules/ki_optimizer/bin/ki_daemon status
+      else
+        echo '{"running": false}'
+      fi
+    `);
+
+    let data;
+    try {
+      data = JSON.parse(stdout);
+    } catch {
+      data = { running: false };
+    }
+
+    updateDaemonUI(data);
+  } catch (err) {
+    console.error("refreshDaemonState error:", err);
+  }
+}
+
+function updateDaemonUI(data) {
+  const isRunning = !!data.running;
+
+  if (elDaemonIndicator) {
+    elDaemonIndicator.classList.toggle("is-active", isRunning && data.daemon_enabled);
+  }
+
+  if (elDaemonStatusBadge) {
+    if (!isRunning) {
+      elDaemonStatusBadge.textContent = "Stopped";
+      elDaemonStatusBadge.style.color = "var(--danger)";
+    } else if (!data.daemon_enabled) {
+      elDaemonStatusBadge.textContent = "Paused";
+      elDaemonStatusBadge.style.color = "var(--warning)";
+    } else {
+      elDaemonStatusBadge.textContent = "Active";
+      elDaemonStatusBadge.style.color = "var(--accent)";
+    }
+  }
+
+  if (elDaemonPidBadge) {
+    elDaemonPidBadge.textContent = `PID: ${data.pid || "--"}`;
+  }
+
+  if (elDaemonFgBadge) {
+    if (data.is_game) {
+      elDaemonFgBadge.textContent = `GAME: ${data.foreground_pkg || "Running"}`;
+      elDaemonFgBadge.classList.add("is-game");
+    } else {
+      elDaemonFgBadge.textContent = `App: ${data.foreground_pkg || "None"}`;
+      elDaemonFgBadge.classList.remove("is-game");
+    }
+  }
+
+  if (toggleDaemonMaster && typeof data.daemon_enabled !== "undefined") {
+    toggleDaemonMaster.checked = data.daemon_enabled;
+  }
+
+  if (toggleAutoBypass && typeof data.auto_bypass !== "undefined") {
+    toggleAutoBypass.checked = data.auto_bypass;
+    if (badgeAutoBypass) {
+      badgeAutoBypass.textContent = data.auto_bypass ? "Active" : "Off";
+      badgeAutoBypass.classList.toggle("is-off", !data.auto_bypass);
+    }
+  }
+
+  if (toggleAutoMglru && typeof data.auto_mglru !== "undefined") {
+    toggleAutoMglru.checked = data.auto_mglru;
+    if (badgeAutoMglru) {
+      badgeAutoMglru.textContent = data.auto_mglru ? "Active" : "Off";
+      badgeAutoMglru.classList.toggle("is-off", !data.auto_mglru);
+    }
+  }
+
+  if (selectGameProf && typeof data.game_profile !== "undefined") {
+    selectGameProf.value = data.game_profile.toString();
+    if (badgeGameProf) {
+      badgeGameProf.textContent = data.game_profile === 2 ? "Turbo Gaming" : "Balanced";
+    }
+  }
+
+  if (selectExitProf && typeof data.default_profile !== "undefined") {
+    selectExitProf.value = data.default_profile.toString();
+    if (badgeExitProf) {
+      badgeExitProf.textContent = data.default_profile === 0 ? "Battery Saver" : "Balanced";
+    }
+  }
+
+  if (Array.isArray(data.games)) {
+    renderGameChips(data.games);
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function renderGameChips(games) {
+  if (!gamesChipsList) return;
+  if (gamesCountEl) gamesCountEl.textContent = games.length;
+
+  gamesChipsList.innerHTML = "";
+  games.forEach(pkg => {
+    const chip = document.createElement("div");
+    chip.className = "game-chip";
+    chip.innerHTML = `
+      <span>${escapeHtml(pkg)}</span>
+      <button type="button" class="btn-chip-del" data-pkg="${escapeHtml(pkg)}" title="Remove game" aria-label="Remove game">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    `;
+    gamesChipsList.appendChild(chip);
+  });
+
+  gamesChipsList.querySelectorAll(".btn-chip-del").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const pkg = btn.dataset.pkg;
+      await removeGame(pkg);
+    });
+  });
+}
+
+async function addGame(pkg) {
+  const clean = pkg.trim();
+  if (!clean) return;
+  try {
+    await exec(`
+      if command -v ki_daemon >/dev/null 2>&1; then
+        ki_daemon add-game "${clean}"
+      elif [ -x "/data/adb/modules/ki_optimizer/bin/ki_daemon" ]; then
+        /data/adb/modules/ki_optimizer/bin/ki_daemon add-game "${clean}"
+      fi
+    `);
+    showToast(`Added ${clean} to Auto Game Turbo`);
+    if (inputNewGame) inputNewGame.value = "";
+    refreshDaemonState();
+  } catch (err) {
+    showToast("Failed to add game", true);
+  }
+}
+
+async function removeGame(pkg) {
+  try {
+    await exec(`
+      if command -v ki_daemon >/dev/null 2>&1; then
+        ki_daemon remove-game "${pkg}"
+      elif [ -x "/data/adb/modules/ki_optimizer/bin/ki_daemon" ]; then
+        /data/adb/modules/ki_optimizer/bin/ki_daemon remove-game "${pkg}"
+      fi
+    `);
+    showToast(`Removed ${pkg}`);
+    refreshDaemonState();
+  } catch (err) {
+    showToast("Failed to remove game", true);
+  }
+}
+
+async function setDaemonConfig(key, val) {
+  try {
+    await exec(`
+      if command -v ki_daemon >/dev/null 2>&1; then
+        ki_daemon set ${key} "${val}"
+      elif [ -x "/data/adb/modules/ki_optimizer/bin/ki_daemon" ]; then
+        /data/adb/modules/ki_optimizer/bin/ki_daemon set ${key} "${val}"
+      fi
+    `);
+    showToast(`Updated ${key}`);
+    refreshDaemonState();
+  } catch (err) {
+    showToast(`Failed to update ${key}`, true);
+  }
+}
+
+// Event Listeners with Immediate Optimistic Feedback
+tabKernel?.addEventListener("click", () => switchTab("panel-kernel"));
+tabDaemon?.addEventListener("click", () => switchTab("panel-daemon"));
+
 cardProf0?.addEventListener("click", () => {
   setProfileInstant(0);
 });
@@ -528,16 +781,102 @@ mglruBtns.forEach(btn => {
   }
 });
 
+// Instant Slider Value Reflection
 rangeSwappiness?.addEventListener("input", (e) => {
   if (valSwappiness) valSwappiness.textContent = e.target.value;
+});
+
+// Optimistic Switch Status Badge Updates
+toggleBypass?.addEventListener("change", (e) => {
+  if (badgeBypass) {
+    badgeBypass.textContent = e.target.checked ? "Active" : "Off";
+    badgeBypass.classList.toggle("is-off", !e.target.checked);
+  }
+});
+
+toggleFastCharge?.addEventListener("change", (e) => {
+  if (badgeFastCharge) {
+    badgeFastCharge.textContent = e.target.checked ? "Active" : "Off";
+    badgeFastCharge.classList.toggle("is-off", !e.target.checked);
+  }
+});
+
+toggleScreenOff?.addEventListener("change", (e) => {
+  if (badgeScreenOff) {
+    badgeScreenOff.textContent = e.target.checked ? "Active" : "Off";
+    badgeScreenOff.classList.toggle("is-off", !e.target.checked);
+  }
+});
+
+toggleWakelock?.addEventListener("change", (e) => {
+  if (badgeWakelock) {
+    badgeWakelock.textContent = e.target.checked ? "Active" : "Off";
+    badgeWakelock.classList.toggle("is-off", !e.target.checked);
+  }
+});
+
+toggleDynFsync?.addEventListener("change", (e) => {
+  if (badgeDynFsync) {
+    badgeDynFsync.textContent = e.target.checked ? "Active" : "Off";
+    badgeDynFsync.classList.toggle("is-off", !e.target.checked);
+  }
+});
+
+toggleThermal?.addEventListener("change", (e) => {
+  if (badgeThermal) {
+    badgeThermal.textContent = e.target.checked ? "Active" : "Bypass";
+    badgeThermal.classList.toggle("is-off", !e.target.checked);
+  }
+});
+
+selectTcp?.addEventListener("change", (e) => {
+  if (badgeTcp) badgeTcp.textContent = e.target.value;
 });
 
 btnApply?.addEventListener("click", () => {
   applyChanges(false);
 });
 
-// Periodic telemetry poll (every 4 seconds for live battery & temp, decoupled from form controls)
-setInterval(updateTelemetry, 4000);
+// Daemon Listeners
+toggleDaemonMaster?.addEventListener("change", async (e) => {
+  const enabled = e.target.checked ? "1" : "0";
+  await setDaemonConfig("DAEMON_ENABLED", enabled);
+  if (e.target.checked) {
+    await exec("nohup /data/adb/modules/ki_optimizer/bin/ki_daemon run >/dev/null 2>&1 &");
+  } else {
+    await exec("if command -v ki_daemon >/dev/null 2>&1; then ki_daemon stop; else /data/adb/modules/ki_optimizer/bin/ki_daemon stop; fi");
+  }
+  refreshDaemonState();
+});
+
+toggleAutoBypass?.addEventListener("change", (e) => {
+  setDaemonConfig("AUTO_BYPASS", e.target.checked ? "1" : "0");
+});
+
+toggleAutoMglru?.addEventListener("change", (e) => {
+  setDaemonConfig("AUTO_MGLRU", e.target.checked ? "1" : "0");
+});
+
+selectGameProf?.addEventListener("change", (e) => {
+  setDaemonConfig("GAME_PROFILE", e.target.value);
+});
+
+selectExitProf?.addEventListener("change", (e) => {
+  setDaemonConfig("DEFAULT_PROFILE", e.target.value);
+});
+
+btnAddGame?.addEventListener("click", () => {
+  if (inputNewGame) addGame(inputNewGame.value);
+});
+
+inputNewGame?.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") {
+    addGame(inputNewGame.value);
+  }
+});
+
+// Periodic telemetry poll (Non-blocking, paused during touch/gestures)
+setInterval(updateTelemetry, 3500);
 
 // Initialize on Load
 document.addEventListener("DOMContentLoaded", () => {

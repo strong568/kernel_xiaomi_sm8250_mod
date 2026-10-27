@@ -991,12 +991,12 @@ int elevator_init_mq(struct request_queue *q)
 
 	if (unlikely(q->elevator))
 		goto out;
-#if defined(CONFIG_MQ_IOSCHED_ADIOS)
-	e = elevator_get(q, "adios", false);
+#if defined(CONFIG_IOSCHED_BFQ)
+	e = elevator_get(q, "bfq", false);
 #elif defined(CONFIG_MQ_IOSCHED_KYBER)
 	e = elevator_get(q, "kyber", false);
-#elif defined(CONFIG_IOSCHED_BFQ)
-	e = elevator_get(q, "bfq", false);
+#elif defined(CONFIG_MQ_IOSCHED_ADIOS)
+	e = elevator_get(q, "adios", false);
 #else
 	e = elevator_get(q, "mq-deadline", false);
 #endif

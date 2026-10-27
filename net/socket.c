@@ -111,6 +111,7 @@
 
 #ifdef CONFIG_OPLUS_NWPOWER
 #include <net/oplus_nwpower.h>
+#include <linux/e404_attributes.h>
 #endif
 
 /* proto_ops for ipv4 and ipv6 use the same {recv,send}msg function */
@@ -440,19 +441,21 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 	sock->file = file;
 	file->private_data = sock;
 #ifdef CONFIG_OPLUS_NWPOWER
-	pid = find_get_pid(current->tgid);
-	if (pid) {
-		task = get_pid_task(pid, PIDTYPE_PID);
-		if (task && sock->sk) {
-			strncpy(sock->sk->sk_cmdline, task->comm, TASK_COMM_LEN);
-			sock->sk->sk_cmdline[TASK_COMM_LEN - 1] = 0;
+	if (early_rom_type == 3) {
+		pid = find_get_pid(current->tgid);
+		if (pid) {
+			task = get_pid_task(pid, PIDTYPE_PID);
+			if (task && sock->sk) {
+				strncpy(sock->sk->sk_cmdline, task->comm, TASK_COMM_LEN);
+				sock->sk->sk_cmdline[TASK_COMM_LEN - 1] = 0;
+			}
+			put_task_struct(task);
 		}
-		put_task_struct(task);
-	}
-	put_pid(pid);
+		put_pid(pid);
 
-	if (sock->sk) {
-		sock->sk->sk_oplus_pid = current->tgid;
+		if (sock->sk) {
+			sock->sk->sk_oplus_pid = current->tgid;
+		}
 	}
 #endif
 	return file;

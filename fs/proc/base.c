@@ -3884,6 +3884,27 @@ static int proc_pid_patch_state(struct seq_file *m, struct pid_namespace *ns,
 }
 #endif /* CONFIG_LIVEPATCH */
 
+#if defined(CONFIG_OPLUS_PORT) || defined(CONFIG_E404_OPLUS)
+static ssize_t proc_ux_state_read(struct file *file, char __user *buf,
+				  size_t count, loff_t *ppos)
+{
+	char buffer[16] = "0\n";
+	return simple_read_from_buffer(buf, count, ppos, buffer, 2);
+}
+
+static ssize_t proc_ux_state_write(struct file *file, const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	return count;
+}
+
+static const struct file_operations proc_ux_state_operations = {
+	.read		= proc_ux_state_read,
+	.write		= proc_ux_state_write,
+	.llseek		= generic_file_llseek,
+};
+#endif
+
 /*
  * Thread groups
  */
@@ -3904,6 +3925,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("status",     S_IRUGO, proc_pid_status),
 	ONE("personality", S_IRUSR, proc_pid_personality),
 	ONE("limits",	  S_IRUGO, proc_pid_limits),
+#if defined(CONFIG_OPLUS_PORT) || defined(CONFIG_E404_OPLUS)
+	REG("ux_state",   00666,   proc_ux_state_operations),
+#endif
 #ifdef CONFIG_SMP
 	REG("sched_wake_up_idle", 00644, proc_pid_sched_wake_up_idle_operations),
 #endif
@@ -4328,6 +4352,9 @@ static const struct pid_entry tid_base_stuff[] = {
 	ONE("status",    S_IRUGO, proc_pid_status),
 	ONE("personality", S_IRUSR, proc_pid_personality),
 	ONE("limits",	 S_IRUGO, proc_pid_limits),
+#if defined(CONFIG_OPLUS_PORT) || defined(CONFIG_E404_OPLUS)
+	REG("ux_state",   00666,   proc_ux_state_operations),
+#endif
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",     S_IRUGO|S_IWUSR, proc_pid_sched_operations),
 #endif

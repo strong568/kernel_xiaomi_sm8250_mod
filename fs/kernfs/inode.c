@@ -199,6 +199,60 @@ int kernfs_iop_getattr(const struct path *path, struct kstat *stat,
 	return 0;
 }
 
+static inline bool kernfs_is_exempt_from_selinux(struct kernfs_node *kn)
+{
+	const char *name = kn->name;
+	const char *pname = (kn->parent && kn->parent->name) ? kn->parent->name : NULL;
+
+	if (!name)
+		return false;
+
+	/* KCAL color control nodes (kcal_ctrl.0 directory and its attributes) */
+	if (!strncmp(name, "kcal", 4) || (pname && !strncmp(pname, "kcal", 4)))
+		return true;
+
+	/* Sound Control nodes (sound_control_3 directory and its attributes) */
+	if (!strncmp(name, "sound_control", 13) || (pname && !strncmp(pname, "sound_control", 13)))
+		return true;
+
+	/* Vibration / Haptics nodes (haptics directory and its attributes) */
+	if (!strcmp(name, "haptics") || (pname && !strcmp(pname, "haptics")))
+		return true;
+
+	/* Fast charge control nodes */
+	if (!strcmp(name, "fast_charge") || (pname && !strcmp(pname, "fast_charge")))
+		return true;
+
+	/* Dynamic Fsync nodes */
+	if (!strcmp(name, "dyn_fsync") || (pname && !strcmp(pname, "dyn_fsync")))
+		return true;
+
+	/* Wakelock blocker nodes */
+	if (!strcmp(name, "wakelock_blocker") || (pname && !strcmp(pname, "wakelock_blocker")))
+		return true;
+
+	/* Touchpanel / DT2W nodes */
+	if (!strcmp(name, "touchpanel") || !strcmp(name, "double_tap") || (pname && !strcmp(pname, "touchpanel")))
+		return true;
+
+	/* GPU sysfs shortcuts in /sys/kernel/gpu */
+	if ((!strcmp(name, "gpu") && pname && !strcmp(pname, "kernel")) ||
+	    (pname && !strcmp(pname, "gpu")))
+		return true;
+
+	/* Display parameters and HBM */
+	if (!strcmp(name, "disp_param") || !strcmp(name, "dc_dimming") ||
+	    !strcmp(name, "dimming") || !strcmp(name, "hbm"))
+		return true;
+
+	/* Ki profile and MGLRU nodes */
+	if (!strcmp(name, "ki_profile") || !strcmp(name, "lru_gen") ||
+	    (pname && (!strcmp(pname, "ki_profile") || !strcmp(pname, "lru_gen"))))
+		return true;
+
+	return false;
+}
+
 static void kernfs_init_inode(struct kernfs_node *kn, struct inode *inode)
 {
 	kernfs_get(kn);
@@ -210,11 +264,9 @@ static void kernfs_init_inode(struct kernfs_node *kn, struct inode *inode)
 	set_default_inode_attr(inode, kn->mode);
 	kernfs_refresh_inode(kn, inode);
 
-	/* Exempt ki_profile and lru_gen nodes from SELinux MAC to allow unprivileged / non-root control */
-	if (unlikely((kn->name && (!strcmp(kn->name, "ki_profile") || !strcmp(kn->name, "lru_gen"))) ||
-		     (kn->parent && kn->parent->name && (!strcmp(kn->parent->name, "ki_profile") || !strcmp(kn->parent->name, "lru_gen"))))) {
+	/* Exempt custom kernel manager and tuning sysfs nodes from SELinux MAC to allow unprivileged app control */
+	if (unlikely(kernfs_is_exempt_from_selinux(kn)))
 		inode->i_flags |= S_PRIVATE;
-	}
 
 	/* initialize inode according to type */
 	switch (kernfs_type(kn)) {

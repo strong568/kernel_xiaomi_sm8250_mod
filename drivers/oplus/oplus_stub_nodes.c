@@ -12,6 +12,7 @@
 #include <linux/seq_file.h>
 #include <linux/version.h>
 #include <linux/notifier.h>
+#include <linux/sysctl.h>
 
 static char ufs_read_mb[32] = "0\n";
 static char ufs_write_mb[32] = "0\n";
@@ -168,11 +169,40 @@ static ssize_t ufs_write_mb_write(struct file *file, const char __user *buf, siz
 }
 static const struct file_operations ufs_write_mb_fops = { .read = ufs_write_mb_read, .write = ufs_write_mb_write };
 
+static long dummy_sink_ioctl(struct file *file, unsigned int cmd, unsigned long arg) { return 0; }
 static ssize_t dummy_sink_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos) { return count; }
 static ssize_t dummy_zero_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
     return simple_read_from_buffer(buf, count, ppos, "0\n", 2);
 }
-static const struct file_operations dummy_sink_fops = { .read = dummy_zero_read, .write = dummy_sink_write };
+static const struct file_operations dummy_sink_fops = {
+    .read = dummy_zero_read,
+    .write = dummy_sink_write,
+    .unlocked_ioctl = dummy_sink_ioctl,
+    .compat_ioctl = dummy_sink_ioctl,
+    .llseek = generic_file_llseek,
+};
+
+static int fbg_frame_boost_enabled = 1;
+static struct ctl_table fbg_sysctl_table[] = {
+	{
+		.procname	= "frame_boost_enabled",
+		.data		= &fbg_frame_boost_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0666,
+		.proc_handler	= proc_dointvec,
+	},
+	{ }
+};
+
+static struct ctl_table fbg_sysctl_root[] = {
+	{
+		.procname	= "fbg",
+		.mode		= 0555,
+		.child		= fbg_sysctl_table,
+	},
+	{ }
+};
+static struct ctl_table_header *fbg_sysctl_header;
 
 static ssize_t devinfo_lcd_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
     return simple_read_from_buffer(buf, count, ppos, lcd_info, strlen(lcd_info));
@@ -630,12 +660,22 @@ static DEVICE_ATTR(quick_charge_type, 0444, usb_quick_charge_type_show, NULL);
 
 static void try_add_usb_attr(void) {
 	struct power_supply *usb_psy;
+	struct kernfs_node *kn;
 
 	if (usb_attr_added) return;
 	usb_psy = power_supply_get_by_name("usb");
 	if (!usb_psy) return;
-	if (!device_create_file(&usb_psy->dev, &dev_attr_quick_charge_type))
-		usb_attr_added = true;
+	usb_attr_added = true;
+
+	if (usb_psy->dev.kobj.sd) {
+		kn = sysfs_get_dirent(usb_psy->dev.kobj.sd, dev_attr_quick_charge_type.attr.name);
+		if (kn) {
+			sysfs_put(kn);
+			power_supply_put(usb_psy);
+			return;
+		}
+	}
+	device_create_file(&usb_psy->dev, &dev_attr_quick_charge_type);
 	power_supply_put(usb_psy);
 }
 
@@ -661,7 +701,8 @@ static struct device *oplus_chg_create_dev(const char *name, int minor, const st
 
 static int __init oplus_stub_nodes_init(void) {
     struct proc_dir_entry *oplus_storage, *io_metrics, *forever;
-    struct proc_dir_entry *oplus_scheduler, *sched_assist;
+    struct proc_dir_entry *oplus_scheduler, *sched_assist, *sched_audio;
+    struct proc_dir_entry *oplus_frame_boost, *oplus_binder;
     struct proc_dir_entry *oplus_afs, *oplus_mem, *devinfo, *proc_storage;
     struct proc_dir_entry *charger_dir;
     int rc;
@@ -701,7 +742,26 @@ static int __init oplus_stub_nodes_init(void) {
             set_proc_owner(proc_create("im_flag_app", 0666, sched_assist, &dummy_sink_fops));
             set_proc_owner(proc_create("im_flag", 0666, sched_assist, &dummy_sink_fops));
             set_proc_owner(proc_create("ux_task", 0666, sched_assist, &dummy_sink_fops));
+            set_proc_owner(proc_create("ux_task_app", 0666, sched_assist, &dummy_sink_fops));
+            sched_audio = proc_mkdir("audio", sched_assist);
+            if (sched_audio) {
+                set_proc_owner(sched_audio);
+                set_proc_owner(proc_create("status", 0666, sched_audio, &dummy_sink_fops));
+            }
         }
+    }
+
+    oplus_frame_boost = proc_mkdir("oplus_frame_boost", NULL);
+    if (oplus_frame_boost) {
+        set_proc_owner(oplus_frame_boost);
+        set_proc_owner(proc_create("ctrl", 0666, oplus_frame_boost, &dummy_sink_fops));
+        set_proc_owner(proc_create("sys_ctrl", 0666, oplus_frame_boost, &dummy_sink_fops));
+    }
+
+    oplus_binder = proc_mkdir("oplus_binder", NULL);
+    if (oplus_binder) {
+        set_proc_owner(oplus_binder);
+        set_proc_owner(proc_create("ux_flag", 0666, oplus_binder, &dummy_sink_fops));
     }
 
     oplus_afs = proc_mkdir("oplus_afs_config", NULL);
@@ -728,6 +788,8 @@ static int __init oplus_stub_nodes_init(void) {
         set_proc_owner(charger_dir);
         set_proc_owner(proc_create("batt_health", 0444, charger_dir, &batt_health_ops));
     }
+
+    fbg_sysctl_header = register_sysctl_table(fbg_sysctl_root);
 
     oplus_chg_class = class_create(THIS_MODULE, "oplus_chg");
     if (!IS_ERR(oplus_chg_class) && oplus_chg_class) {
@@ -774,6 +836,7 @@ static void __exit oplus_stub_nodes_exit(void) {
 		device_destroy(oplus_chg_class, MKDEV(0, 0));
 	}
 	if (oplus_chg_class) class_destroy(oplus_chg_class);
+	if (fbg_sysctl_header) unregister_sysctl_table(fbg_sysctl_header);
 }
 
 module_init(oplus_stub_nodes_init);

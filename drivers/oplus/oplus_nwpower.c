@@ -24,6 +24,7 @@
 #ifdef CONFIG_OPLUS_WAKELOCK_PROFILER
 #include <oplus/oplus_wakelock_profiler.h>
 #endif
+#include <linux/e404_attributes.h>
 
 static void tcp_output_hook_work_callback(struct work_struct *work);
 static void tcp_input_hook_work_callback(struct work_struct *work);
@@ -194,7 +195,11 @@ extern bool oplus_check_socket_in_blacklist(int is_input, struct socket *sock) {
 	int i = 0;
 	uid_t uid = 0;
 	struct timespec now_ts;
-	if (blacklist_len > 0 && sock && sock->sk && (sock->sk->sk_family == 2 || sock->sk->sk_family == 10)){
+
+	if (early_rom_type != 3 || blacklist_len <= 0)
+		return false;
+
+	if (sock && sock->sk && (sock->sk->sk_family == 2 || sock->sk->sk_family == 10)){
 		uid = get_uid_from_sock(sock->sk);
 		if(uid == 0) {
 			return false;

@@ -13,12 +13,18 @@
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/syscalls.h>
+#include <linux/uidgid.h>
+#include <linux/user_namespace.h>
 
 #include <oplus/system/oplus_project.h>
 
 #ifdef CONFIG_MTK_SECURITY_SW_SUPPORT
 #include <sec_boot_lib.h>
 #endif
+
+static void set_proc_owner(struct proc_dir_entry *entry) {
+    if (entry) proc_set_user(entry, make_kuid(&init_user_ns, 0), make_kgid(&init_user_ns, 1000));
+}
 
 #define SMEM_PROJECT    135
 
@@ -178,21 +184,25 @@ unsigned int get_project(void)
 {
     init_project_version();
 
-    return g_project? PROJECT : 0;
+    return g_project ? PROJECT : 20807;
 }
 EXPORT_SYMBOL(get_project);
 
+unsigned int get_prj(void)
+{
+    return get_project();
+}
+EXPORT_SYMBOL(get_prj);
+
 unsigned int is_project(int project)
 {
-    init_project_version();
-
-    return ((get_project() == project)?1:0);
+    return (get_project() == project);
 }
 EXPORT_SYMBOL(is_project);
 
 unsigned int is_new_cdt(void)/*Q and R is new*/
 {
-	init_project_version();
+    init_project_version();
     return 1;
 }
 
@@ -200,7 +210,7 @@ unsigned int get_PCB_Version(void)
 {
     init_project_version();
 
-    return g_project? T6:-EINVAL;
+    return T6;
 }
 EXPORT_SYMBOL(get_PCB_Version);
 
@@ -208,7 +218,7 @@ unsigned int get_Oplus_Boot_Mode(void)
 {
     init_project_version();
 
-    return g_project?NORMAL_MODE:0;
+    return NORMAL_MODE;
 }
 EXPORT_SYMBOL(get_Oplus_Boot_Mode);
 
@@ -217,7 +227,7 @@ int32_t get_Modem_Version(void)
     init_project_version();
 
     // 13 - INDIA
-    return g_project?13:-EINVAL;
+    return 13;
 }
 EXPORT_SYMBOL(get_Modem_Version);
 
@@ -225,7 +235,7 @@ int32_t get_Operator_Version(void)
 {
     init_project_version();
 
-	return g_project?g_project->nDataSCDT.Operator:-EINVAL;
+    return g_project ? g_project->nDataSCDT.Operator : 1;
 }
 EXPORT_SYMBOL(get_Operator_Version);
 
@@ -270,7 +280,7 @@ unsigned int get_eng_version(void)
 {
     init_project_version();
 
-    return g_project?OEM_RELEASE:-EINVAL;
+    return OEM_RELEASE;
 }
 EXPORT_SYMBOL(get_eng_version);
 
@@ -284,8 +294,8 @@ bool oplus_daily_build(void)
     if (daily_build != -1)
         return daily_build;
 
-    if (strstr(saved_command_line, "buildvariant=userdebug") ||
-        strstr(saved_command_line, "buildvariant=eng")) {
+    if (saved_command_line && (strstr(saved_command_line, "buildvariant=userdebug") ||
+        strstr(saved_command_line, "buildvariant=eng"))) {
         daily_build = true;
     } else {
         daily_build = false;
@@ -306,7 +316,7 @@ bool is_confidential(void)
 {
     init_project_version();
 
-    return g_project?g_project->nDataECDT.Is_confidential:-EINVAL;
+    return g_project ? g_project->nDataECDT.Is_confidential : false;
 }
 EXPORT_SYMBOL(is_confidential);
 
@@ -316,7 +326,7 @@ uint32_t get_oplus_feature(enum F_INDEX index)
         init_project_version();
         if (index < 1 || index > FEATURE_COUNT)
             return 0;
-        return g_project?g_project->nDataBCDT.Feature[index-1]:0;
+        return g_project ? g_project->nDataBCDT.Feature[index-1] : 0;
     }
     else
         return 0;
@@ -327,15 +337,19 @@ EXPORT_SYMBOL(get_oplus_feature);
 unsigned int get_serialID(void)
 {
     unsigned int serial_id = 0xFFFFFFFF;
-
-	char * ptr;
+    char *ptr;
     char serialno[20] = {0};
 
+    if (!saved_command_line)
+        return serial_id;
+
     ptr = strstr(saved_command_line, "androidboot.serialno=");
-    ptr += strlen("androidboot.serialno=");
-    strncpy(serialno, ptr, SERIALNO_LEN);
-    serialno[SERIALNO_LEN] = '\0';
-    sscanf(serialno, "%x", &serial_id);
+    if (ptr) {
+        ptr += strlen("androidboot.serialno=");
+        strncpy(serialno, ptr, SERIALNO_LEN);
+        serialno[SERIALNO_LEN] = '\0';
+        sscanf(serialno, "%x", &serial_id);
+    }
     return serial_id;
 }
 EXPORT_SYMBOL(get_serialID);
@@ -344,10 +358,12 @@ static void dump_ocp_info(struct seq_file *s)
 {
     init_project_version();
 
-    if (!g_project)
+    if (!g_project) {
+        seq_printf(s, "ocp: 0 0x0 0 0x0 0 0\n");
         return;
+    }
 
-    seq_printf(s, "ocp: %d 0x%x %d 0x%x %c %c",
+    seq_printf(s, "ocp: %d 0x%x %d 0x%x %c %c\n",
         g_project->nDataSCDT.PmicOcp[0],
         g_project->nDataSCDT.PmicOcp[1],
         g_project->nDataSCDT.PmicOcp[2],
@@ -370,8 +386,10 @@ static void dump_oplus_feature(struct seq_file *s)
 {
     init_project_version();
 
-    if (!g_project)
+    if (!g_project) {
+        seq_printf(s, "0,0,0,0,0,0,0,0,0,0\n");
         return;
+    }
 
     seq_printf(s, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
         g_project->nDataBCDT.Feature[0],
@@ -518,66 +536,82 @@ static int __init oplus_project_init(void)
     if (!oplus_info) {
         goto error_init;
     }
+    set_proc_owner(oplus_info);
     
     p_entry = proc_create_data("prjName", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(PROJECT_VERSION));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("pcbVersion", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(PCB_VERSION));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("oplusBootmode", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(OPLUS_BOOTMODE));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("RFType", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(RF_INFO));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("modemType", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(MODEM_TYPE));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("operatorName", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(OPERATOR_NAME));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("secureType", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(SECURE_TYPE));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("secureStage", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(SECURE_STAGE));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("ocp", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(OCP_NUMBER));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("serialID", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(SERIAL_NUMBER));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("engVersion", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(ENG_VERSION));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("isConfidential", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(CONFIDENTIAL_STATUS));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("cdt", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(CDT_INTEGRITY));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("feature", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(OPLUS_FEATURE));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     p_entry = proc_create_data("test", S_IRUGO, oplus_info, &project_info_fops, UINT2Ptr(PROJECT_TEST));
     if (!p_entry)
         goto error_init;
+    set_proc_owner(p_entry);
 
     return 0;
 

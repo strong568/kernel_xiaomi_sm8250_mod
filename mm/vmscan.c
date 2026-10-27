@@ -5386,9 +5386,10 @@ static ssize_t mglru_proc_read(struct file *file, char __user *buf,
 		"  [bit 2] Non-leaf PMD walk   : %s\n"
 		"\n"
 		"Usage (non-root accessible):\n"
-		"  echo 1 > /proc/mglru       -> Enable (0x0007 / max performance)\n"
+		"  echo 1 > /proc/mglru       -> Enable Standard (0x0001 / recommended for Android)\n"
+		"  echo 7 > /proc/mglru       -> Enable Turbo (0x0007 / Core + Page Table Walk)\n"
 		"  echo 0 > /proc/mglru       -> Disable (0x0000 / traditional 2-list LRU)\n"
-		"  echo <hex> > /proc/mglru   -> Custom caps bitmask (e.g. 0x0007)\n",
+		"  echo <hex> > /proc/mglru   -> Custom caps bitmask (e.g. 0x0001)\n",
 		enabled ? "ENABLED" : "DISABLED",
 		caps,
 		(caps & BIT(LRU_GEN_CORE)) ? "ON" : "OFF",
@@ -5411,12 +5412,17 @@ static ssize_t mglru_proc_write(struct file *file, const char __user *buf,
 	kbuf[len] = '\0';
 
 	if (kbuf[0] == '1' && (kbuf[1] == '\0' || kbuf[1] == '\n' || kbuf[1] == ' ')) {
+		/* Standard Android MGLRU: Core generational LRU only (0x0001) - no page table lock stalls */
+		caps = 0x0001;
+	} else if (kbuf[0] == '7' && (kbuf[1] == '\0' || kbuf[1] == '\n' || kbuf[1] == ' ')) {
 		caps = 0x0007;
 	} else if (tolower(kbuf[0]) == 'y') {
-		caps = 0x0007;
+		caps = 0x0001;
 	} else if (!strncasecmp(kbuf, "on", 2)) {
-		caps = 0x0007;
+		caps = 0x0001;
 	} else if (!strncasecmp(kbuf, "enable", 6)) {
+		caps = 0x0001;
+	} else if (!strncasecmp(kbuf, "turbo", 5) || !strncasecmp(kbuf, "gaming", 6)) {
 		caps = 0x0007;
 	} else if (kbuf[0] == '0' && (kbuf[1] == '\0' || kbuf[1] == '\n' || kbuf[1] == ' ')) {
 		caps = 0;

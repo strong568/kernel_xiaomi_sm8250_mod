@@ -1098,32 +1098,79 @@ static int fg_read_system_soc(struct bq_fg_chip *bq)
 }
 
 static int i2c_error_cnt[FG_MAX_INDEX];
+static int last_valid_temp[FG_MAX_INDEX] = { 250, 250 };
+static unsigned long last_temp_read_jiffies[FG_MAX_INDEX];
+static int consecutive_spike_cnt[FG_MAX_INDEX];
+
 static int fg_read_temperature(struct bq_fg_chip *bq)
 {
 	int ret;
-	u16 temp = 0;
-	static int last_temp[FG_MAX_INDEX];
+	u16 raw_temp = 0;
+	int cur_temp;
+	int idx = bq->fg_index;
+
+	if (idx < 0 || idx >= FG_MAX_INDEX)
+		idx = 0;
 
 	if (bq->fake_temp > 0)
 		return bq->fake_temp;
 
 	if (bq->skip_reads)
-		return last_temp[bq->fg_index];
+		return last_valid_temp[idx];
 
-	ret = fg_read_word(bq, bq->regs[BQ_FG_REG_TEMP], &temp);
-	if (ret < 0) {
-		bq_dbg(PR_OEM, "could not read temperature, ret = %d\n", ret);
-		if (i2c_error_cnt[bq->fg_index]++ >= 3) {
-			i2c_error_cnt[bq->fg_index] = 3;
-			return BQ_I2C_FAILED_TEMP_HIGH;
-		}
-		return BQ_I2C_FAILED_TEMP;
+	/* Rate limit I2C polling to at most once per 1000ms to eliminate bus collisions during fast charging */
+	if (last_temp_read_jiffies[idx] &&
+	    time_before(jiffies, last_temp_read_jiffies[idx] + msecs_to_jiffies(1000))) {
+		return last_valid_temp[idx];
 	}
-	i2c_error_cnt[bq->fg_index] = 0;
-	last_temp[bq->fg_index] = temp - 2730;
 
-	return temp - 2730;
+	ret = fg_read_word(bq, bq->regs[BQ_FG_REG_TEMP], &raw_temp);
+	if (ret < 0 || raw_temp == 0xFFFF || raw_temp == 0x0000 ||
+	    raw_temp < 2530 || raw_temp > 3380) {
+		/* Retry once after a brief delay in case bus was contested by charge pump */
+		usleep_range(2000, 3000);
+		ret = fg_read_word(bq, bq->regs[BQ_FG_REG_TEMP], &raw_temp);
+	}
 
+	if (ret < 0 || raw_temp == 0xFFFF || raw_temp == 0x0000 ||
+	    raw_temp < 2530 || raw_temp > 3380) {
+		bq_dbg(PR_OEM, "invalid temp read (ret=%d, raw=0x%04x), fallback to last_valid=%d\n",
+		       ret, raw_temp, last_valid_temp[idx]);
+		return last_valid_temp[idx];
+	}
+
+	last_temp_read_jiffies[idx] = jiffies;
+	i2c_error_cnt[idx] = 0;
+
+	/* Convert 0.1K to 0.1°C (0°C = 273.15K ~ 2730 dK) */
+	cur_temp = (int)raw_temp - 2730;
+
+	/*
+	 * Slew-rate / Outlier Spike Filter:
+	 * Battery temperature cannot physically jump by > 4.0°C in 1-2 seconds.
+	 * Ignore single-sample transient spikes (which cause thermal shutdowns)
+	 * unless sustained for 3 consecutive readings.
+	 */
+	if (last_valid_temp[idx] > -200 && last_valid_temp[idx] < 600) {
+		int delta = cur_temp - last_valid_temp[idx];
+		if (abs(delta) > 40) {
+			if (++consecutive_spike_cnt[idx] < 3) {
+				bq_dbg(PR_OEM, "filtered temp spike: cur=%d, last=%d, delta=%d\n",
+				       cur_temp, last_valid_temp[idx], delta);
+				return last_valid_temp[idx];
+			}
+			/* Sustained shift: step gradually */
+			cur_temp = (delta > 0) ? (last_valid_temp[idx] + 20) : (last_valid_temp[idx] - 20);
+		} else {
+			consecutive_spike_cnt[idx] = 0;
+		}
+	}
+
+	/* Hard safety bounds: clamp to [-200, 560] (i.e. -20.0°C to 56.0°C) */
+	cur_temp = clamp(cur_temp, -200, 560);
+
+	last_valid_temp[idx] = cur_temp;
+	return cur_temp;
 }
 
 static int fg_read_volt(struct bq_fg_chip *bq)

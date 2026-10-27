@@ -35,10 +35,12 @@
 #define NETLINK_MILLET          29
 #endif
 
-#define MAX_LINKS 32		
 #if defined(CONFIG_OPLUS_PORT) || defined(CONFIG_E404_OPLUS)
+#define MAX_LINKS 48
 #define NETLINK_OPLUS_NWPOWERSTATE      36
 #define NETLINK_OPLUS_IPV6_RTO  42
+#else
+#define MAX_LINKS 32
 #endif
 
 struct sockaddr_nl {

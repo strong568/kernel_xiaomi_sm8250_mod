@@ -3647,6 +3647,7 @@ static void tcp_process_tlp_ack(struct sock *sk, u32 ack, int flag)
 		 */
 		tcp_init_cwnd_reduction(sk);
 		tcp_set_ca_state(sk, TCP_CA_CWR);
+		tcp_ca_event(sk, CA_EVENT_TLP_RECOVERY);
 		tcp_end_cwnd_reduction(sk);
 		tcp_try_keep_open(sk);
 		NET_INC_STATS(sock_net(sk),

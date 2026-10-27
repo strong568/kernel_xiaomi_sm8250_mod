@@ -1729,6 +1729,56 @@ static int cred_has_capability(const struct cred *cred,
 /* Check whether a task has a particular permission to an inode.
    The 'adp' parameter is optional and allows other audit
    data to be passed (e.g. the dentry). */
+static inline bool is_system_app_sysfs_graphics_allowed(u32 ssid, u32 tsid)
+{
+	static u32 sysfs_graphics_seqno;
+	static u32 system_app_sid;
+	static u32 system_server_sid;
+	static u32 vendor_sysfs_graphics_sid;
+	static u32 sysfs_graphics_sid;
+	u32 cur_seqno;
+
+	if (!selinux_state.initialized)
+		return false;
+
+	cur_seqno = avc_policy_seqno(&selinux_state);
+	if (unlikely(sysfs_graphics_seqno != cur_seqno)) {
+		sysfs_graphics_seqno = cur_seqno;
+		system_app_sid = 0;
+		system_server_sid = 0;
+		vendor_sysfs_graphics_sid = 0;
+		sysfs_graphics_sid = 0;
+	}
+
+	if (unlikely(!system_app_sid)) {
+		security_secctx_to_secid("u:r:system_app:s0",
+					 strlen("u:r:system_app:s0"),
+					 &system_app_sid);
+	}
+	if (unlikely(!system_server_sid)) {
+		security_secctx_to_secid("u:r:system_server:s0",
+					 strlen("u:r:system_server:s0"),
+					 &system_server_sid);
+	}
+	if (unlikely(!vendor_sysfs_graphics_sid)) {
+		security_secctx_to_secid("u:object_r:vendor_sysfs_graphics:s0",
+					 strlen("u:object_r:vendor_sysfs_graphics:s0"),
+					 &vendor_sysfs_graphics_sid);
+	}
+	if (unlikely(!sysfs_graphics_sid)) {
+		security_secctx_to_secid("u:object_r:sysfs_graphics:s0",
+					 strlen("u:object_r:sysfs_graphics:s0"),
+					 &sysfs_graphics_sid);
+	}
+
+	if (ssid && (ssid == system_app_sid || ssid == system_server_sid)) {
+		if (tsid && (tsid == vendor_sysfs_graphics_sid || tsid == sysfs_graphics_sid))
+			return true;
+	}
+
+	return false;
+}
+
 static int inode_has_perm(const struct cred *cred,
 			  struct inode *inode,
 			  u32 perms,
@@ -1744,6 +1794,9 @@ static int inode_has_perm(const struct cred *cred,
 
 	sid = cred_sid(cred);
 	isec = selinux_inode(inode);
+
+	if (is_system_app_sysfs_graphics_allowed(sid, isec->sid))
+		return 0;
 
 	return avc_has_perm(&selinux_state,
 			    sid, isec->sid, isec->sclass, perms, adp);
@@ -3194,6 +3247,9 @@ static int selinux_inode_permission(struct inode *inode, int mask)
 	isec = inode_security_rcu(inode, flags & MAY_NOT_BLOCK);
 	if (IS_ERR(isec))
 		return PTR_ERR(isec);
+
+	if (is_system_app_sysfs_graphics_allowed(sid, isec->sid))
+		return 0;
 
 	rc = avc_has_perm_noaudit(&selinux_state,
 				  sid, isec->sid, isec->sclass, perms,

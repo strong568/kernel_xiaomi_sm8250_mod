@@ -17,7 +17,7 @@ static inline void dctcp_ece_ack_update(struct sock *sk, enum tcp_ca_event evt,
 	u32 new_ce_state = (evt == CA_EVENT_ECN_IS_CE) ? 1 : 0;
 
 	if (*ce_state != new_ce_state) {
-		INET_ECN_xmit(sk);
+		dctcp_ece_ack_cwr(sk, new_ce_state);
 		*ce_state = new_ce_state;
 		*prior_rcv_nxt = tcp_sk(sk)->rcv_nxt;
 	}

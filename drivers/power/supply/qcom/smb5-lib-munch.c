@@ -1368,11 +1368,19 @@ int smblib_get_prop_from_bms(struct smb_charger *chg,
 				union power_supply_propval *val)
 {
 	int rc;
+	static int last_safe_batt_temp = 250;
 
 	if (!chg->bms_psy)
 		return -EINVAL;
 
 	rc = power_supply_get_property(chg->bms_psy, psp, val);
+	if (psp == POWER_SUPPLY_PROP_TEMP) {
+		if (rc < 0 || val->intval < -200 || val->intval > 560) {
+			val->intval = last_safe_batt_temp;
+			return 0;
+		}
+		last_safe_batt_temp = val->intval;
+	}
 
 	return rc;
 }
@@ -3613,10 +3621,13 @@ int smblib_screen_notifier_cb(struct notifier_block *nb,
 		else
 			chg->system_temp_level = chg->raw_system_temp_level;
 
-		if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE)
-			schedule_delayed_work(&chg->thermal_setting_work, 0);
-		else
+		if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE) {
+			chg->pps_thermal_level = chg->system_temp_level;
+			cancel_delayed_work(&chg->thermal_setting_work);
 			smblib_therm_charging(chg);
+		} else {
+			smblib_therm_charging(chg);
+		}
 	}
 
 	return NOTIFY_OK;
@@ -3635,10 +3646,13 @@ int smblib_set_screen_on_fast_charge(struct smb_charger *chg, int val)
 	else
 		chg->system_temp_level = chg->raw_system_temp_level;
 
-	if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE)
-		schedule_delayed_work(&chg->thermal_setting_work, 0);
-	else
+	if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE) {
+		chg->pps_thermal_level = chg->system_temp_level;
+		cancel_delayed_work(&chg->thermal_setting_work);
 		smblib_therm_charging(chg);
+	} else {
+		smblib_therm_charging(chg);
+	}
 
 	return 0;
 }
@@ -3691,10 +3705,39 @@ int smblib_set_force_fast_charge(struct smb_charger *chg, int val)
 	if (chg->usb_icl_votable) {
 		if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB ||
 		    chg->real_charger_type == POWER_SUPPLY_TYPE_USB_CDP) {
-			if (chg->force_fast_charge > 0)
+			if (chg->force_fast_charge > 0) {
 				vote(chg->usb_icl_votable, USB_PSY_VOTER, true, chg->force_fast_charge_ua);
-			else
-				vote(chg->usb_icl_votable, USB_PSY_VOTER, true, SDP_CURRENT_UA);
+				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, false, 0);
+			} else {
+				vote(chg->usb_icl_votable, USB_PSY_VOTER, true,
+					(chg->real_charger_type == POWER_SUPPLY_TYPE_USB_CDP) ?
+					CDP_CURRENT_UA : SDP_CURRENT_UA);
+				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
+					(chg->real_charger_type == POWER_SUPPLY_TYPE_USB_CDP) ?
+					CDP_CURRENT_UA : SDP_CURRENT_UA);
+			}
+		} else if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB_DCP) {
+			if (chg->force_fast_charge > 0) {
+				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, chg->force_fast_charge_ua);
+				if (is_client_vote_enabled(chg->usb_icl_votable, DCP_VOTER))
+					vote(chg->usb_icl_votable, DCP_VOTER, true, chg->force_fast_charge_ua);
+			} else {
+				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, DCP_CURRENT_UA);
+				if (is_client_vote_enabled(chg->usb_icl_votable, DCP_VOTER))
+					vote(chg->usb_icl_votable, DCP_VOTER, chg->dcp_icl_ua != -EINVAL, chg->dcp_icl_ua);
+			}
+		} else if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP ||
+			   chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3 ||
+			   chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3P5) {
+			if (chg->force_fast_charge > 0) {
+				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, chg->force_fast_charge_ua);
+				if (is_client_vote_enabled(chg->usb_icl_votable, HVDCP2_ICL_VOTER))
+					vote(chg->usb_icl_votable, HVDCP2_ICL_VOTER, true, chg->force_fast_charge_ua);
+			} else {
+				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true, HVDCP_CURRENT_UA);
+				if (is_client_vote_enabled(chg->usb_icl_votable, HVDCP2_ICL_VOTER))
+					vote(chg->usb_icl_votable, HVDCP2_ICL_VOTER, true, 2000000);
+			}
 		}
 	}
 
@@ -3702,7 +3745,8 @@ int smblib_set_force_fast_charge(struct smb_charger *chg, int val)
 	chg->system_temp_level = smblib_get_screen_on_clamped_level(chg, chg->raw_system_temp_level);
 	if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE) {
 		chg->pps_thermal_level = chg->system_temp_level;
-		schedule_delayed_work(&chg->thermal_setting_work, 0);
+		cancel_delayed_work(&chg->thermal_setting_work);
+		smblib_therm_charging(chg);
 	} else {
 		smblib_therm_charging(chg);
 	}
@@ -3763,6 +3807,7 @@ static int smblib_therm_charging(struct smb_charger *chg)
 		if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE) {
 			if (chg->pps_thermal_level < 0)
 				chg->pps_thermal_level = chg->system_temp_level;
+			chg->pps_thermal_level = smblib_get_screen_on_clamped_level(chg, chg->pps_thermal_level);
 			thermal_fcc_ua =
 				chg->thermal_fcc_pps_cp[chg->pps_thermal_level];
 		} else {
@@ -3880,10 +3925,17 @@ int smblib_set_prop_system_temp_level(struct smb_charger *chg,
 	vote(chg->chg_disable_votable, THERMAL_DAEMON_VOTER, false, 0);
 #endif
 
-	if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE)
-		schedule_delayed_work(&chg->thermal_setting_work, 3 * HZ);
-	else
+	if (chg->pd_active == POWER_SUPPLY_PD_PPS_ACTIVE) {
+		if (chg->force_fast_charge > 0 || (chg->screen_on_fast_charge && chg->screen_is_on)) {
+			chg->pps_thermal_level = chg->system_temp_level;
+			cancel_delayed_work(&chg->thermal_setting_work);
+			smblib_therm_charging(chg);
+		} else {
+			schedule_delayed_work(&chg->thermal_setting_work, 3 * HZ);
+		}
+	} else {
 		smblib_therm_charging(chg);
+	}
 
 	return 0;
 }
@@ -9387,20 +9439,24 @@ static void smblib_handle_hvdcp_check_timeout(struct smb_charger *chg,
 					CHARGER_TYPE_VOTER, false, 0);
 			if (!chg->raise_vbus_to_detect
 					&& chg->real_charger_type != POWER_SUPPLY_TYPE_USB_HVDCP_3P5) {
+				int qc_icl = (chg->force_fast_charge > 0) ?
+						chg->force_fast_charge_ua : 0;
 				if (chg->is_qc_class_a)
 					vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-						HVDCP_CLASS_A_MAX_UA);
+						qc_icl ? qc_icl : HVDCP_CLASS_A_MAX_UA);
 				else if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP)
 					vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-						HVDCP2_CURRENT_UA);
+						qc_icl ? qc_icl : HVDCP2_CURRENT_UA);
 				else
 					vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-						HVDCP_CURRENT_UA);
+						qc_icl ? qc_icl : HVDCP_CURRENT_UA);
 			}
 		} else {
 			/* A plain DCP, enforce DCP ICL if specified */
+			int dcp_icl = (chg->force_fast_charge > 0) ?
+					chg->force_fast_charge_ua : chg->dcp_icl_ua;
 			vote(chg->usb_icl_votable, DCP_VOTER,
-				chg->dcp_icl_ua != -EINVAL, chg->dcp_icl_ua);
+				(chg->dcp_icl_ua != -EINVAL || chg->force_fast_charge > 0), dcp_icl);
 		}
 	}
 
@@ -9489,11 +9545,11 @@ static void update_sw_icl_max(struct smb_charger *chg, int pst)
 		break;
 	case POWER_SUPPLY_TYPE_USB_CDP:
 		vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-					CDP_CURRENT_UA);
+			(chg->force_fast_charge > 0) ? chg->force_fast_charge_ua : CDP_CURRENT_UA);
 		break;
 	case POWER_SUPPLY_TYPE_USB_DCP:
 		vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-                    DCP_CURRENT_UA);
+			(chg->force_fast_charge > 0) ? chg->force_fast_charge_ua : DCP_CURRENT_UA);
 		break;
 	case POWER_SUPPLY_TYPE_USB_FLOAT:
 		/*

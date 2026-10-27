@@ -127,6 +127,24 @@ static const char *const nlk_cb_mutex_key_strings[MAX_LINKS + 1] = {
 	"nlk_cb_mutex-29",
 	"nlk_cb_mutex-30",
 	"nlk_cb_mutex-31",
+#if defined(CONFIG_OPLUS_PORT) || defined(CONFIG_E404_OPLUS)
+	"nlk_cb_mutex-32",
+	"nlk_cb_mutex-33",
+	"nlk_cb_mutex-34",
+	"nlk_cb_mutex-35",
+	"nlk_cb_mutex-OPLUS_NWPOWERSTATE",
+	"nlk_cb_mutex-37",
+	"nlk_cb_mutex-38",
+	"nlk_cb_mutex-39",
+	"nlk_cb_mutex-40",
+	"nlk_cb_mutex-41",
+	"nlk_cb_mutex-OPLUS_IPV6_RTO",
+	"nlk_cb_mutex-43",
+	"nlk_cb_mutex-44",
+	"nlk_cb_mutex-45",
+	"nlk_cb_mutex-46",
+	"nlk_cb_mutex-47",
+#endif
 	"nlk_cb_mutex-MAX_LINKS"
 };
 

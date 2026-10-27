@@ -15,10 +15,11 @@ until [ "$(getprop sys.boot_completed)" = "1" ]; do
     sleep 3
 done
 
-# Ensure ki CLI is linked in root PATH without touching /system
+# Ensure ki CLI and ki_daemon are linked in root PATH without touching /system
 for bin_dir in /data/adb/ksu/bin /data/adb/ap/bin /data/adb/magisk; do
-    if [ -d "$bin_dir" ] && [ ! -e "$bin_dir/ki" ]; then
-        ln -sf "$MODDIR/bin/ki" "$bin_dir/ki" 2>/dev/null
+    if [ -d "$bin_dir" ]; then
+        [ ! -e "$bin_dir/ki" ] && ln -sf "$MODDIR/bin/ki" "$bin_dir/ki" 2>/dev/null
+        [ ! -e "$bin_dir/ki_daemon" ] && ln -sf "$MODDIR/bin/ki_daemon" "$bin_dir/ki_daemon" 2>/dev/null
     fi
 done
 
@@ -31,11 +32,10 @@ if [ ! -f "$CONF_PATH" ]; then
     chmod 666 "$CONF_PATH" 2>/dev/null
 fi
 
-# Ensure all Ki-Kernel tweak nodes have correct read/write permissions
-chmod 666 /proc/ki_profile 2>/dev/null
+# Ensure user tweak nodes have correct read/write permissions
+# Note: ki_profile maintains secure 0644/0200 root permissions; root apps/daemons access directly.
 chmod 666 /proc/mglru 2>/dev/null
 chmod 666 /proc/bypass_charging 2>/dev/null
-chmod 666 /sys/kernel/ki_profile/* 2>/dev/null
 chmod 666 /sys/kernel/mm/lru_gen/* 2>/dev/null
 chmod 666 /sys/kernel/fast_charge/* 2>/dev/null
 chmod 666 /sys/kernel/dyn_fsync/* 2>/dev/null
@@ -47,4 +47,10 @@ chmod 666 /sys/devices/virtual/misc/boeffla_wakelock_blocker/* 2>/dev/null
 # Apply configured tweaks
 if [ -x "$MODDIR/bin/ki" ]; then
     "$MODDIR/bin/ki" reload >/dev/null 2>&1
+fi
+
+# Launch Ki-Daemon (Rust Auto Game Turbo & Background Controller)
+if [ -x "$MODDIR/bin/ki_daemon" ]; then
+    killall ki_daemon 2>/dev/null
+    nohup "$MODDIR/bin/ki_daemon" run >/dev/null 2>&1 &
 fi

@@ -271,16 +271,26 @@ void sde_kcal_modify_pcc(struct sde_crtc *sde_crtc, struct sde_hw_cp_cfg *hw_cfg
 	 * (e.g. Night Light / LiveDisplay) instead of dropping it.
 	 */
 	if (hw_cfg->payload) {
+		struct drm_msm_pcc in_pcc;
+
 		pcc = (struct drm_msm_pcc *)hw_cfg->payload;
-		pcc->r.r = clamp_val(((s64)pcc->r.r * kcal_pcc_cfg.r.r) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->r.g = clamp_val(((s64)pcc->r.g * kcal_pcc_cfg.g.g) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->b.b = clamp_val(((s64)pcc->b.b * kcal_pcc_cfg.b.b) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->g.r = clamp_val(((s64)pcc->g.r * kcal_pcc_cfg.g.r) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->g.g = clamp_val(((s64)pcc->g.g * kcal_pcc_cfg.g.g) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->g.b = clamp_val(((s64)pcc->g.b * kcal_pcc_cfg.g.b) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->b.r = clamp_val(((s64)pcc->b.r * kcal_pcc_cfg.b.r) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->b.g = clamp_val(((s64)pcc->b.g * kcal_pcc_cfg.b.g) / KCAL_UNITY_GAIN, 0, 65535);
-		pcc->b.b = clamp_val(((s64)pcc->b.b * kcal_pcc_cfg.b.b) / KCAL_UNITY_GAIN, 0, 65535);
+		in_pcc = *pcc;
+
+		pcc->r.r = clamp_val(((s64)kcal_pcc_cfg.r.r * in_pcc.r.r + (s64)kcal_pcc_cfg.r.g * in_pcc.g.r + (s64)kcal_pcc_cfg.r.b * in_pcc.b.r) / KCAL_UNITY_GAIN, 0, 65535);
+		pcc->r.g = clamp_val(((s64)kcal_pcc_cfg.r.r * in_pcc.r.g + (s64)kcal_pcc_cfg.r.g * in_pcc.g.g + (s64)kcal_pcc_cfg.r.b * in_pcc.b.g) / KCAL_UNITY_GAIN, 0, 65535);
+		pcc->r.b = clamp_val(((s64)kcal_pcc_cfg.r.r * in_pcc.r.b + (s64)kcal_pcc_cfg.r.g * in_pcc.g.b + (s64)kcal_pcc_cfg.r.b * in_pcc.b.b) / KCAL_UNITY_GAIN, 0, 65535);
+
+		pcc->g.r = clamp_val(((s64)kcal_pcc_cfg.g.r * in_pcc.r.r + (s64)kcal_pcc_cfg.g.g * in_pcc.g.r + (s64)kcal_pcc_cfg.g.b * in_pcc.b.r) / KCAL_UNITY_GAIN, 0, 65535);
+		pcc->g.g = clamp_val(((s64)kcal_pcc_cfg.g.r * in_pcc.r.g + (s64)kcal_pcc_cfg.g.g * in_pcc.g.g + (s64)kcal_pcc_cfg.g.b * in_pcc.b.g) / KCAL_UNITY_GAIN, 0, 65535);
+		pcc->g.b = clamp_val(((s64)kcal_pcc_cfg.g.r * in_pcc.r.b + (s64)kcal_pcc_cfg.g.g * in_pcc.g.b + (s64)kcal_pcc_cfg.g.b * in_pcc.b.b) / KCAL_UNITY_GAIN, 0, 65535);
+
+		pcc->b.r = clamp_val(((s64)kcal_pcc_cfg.b.r * in_pcc.r.r + (s64)kcal_pcc_cfg.b.g * in_pcc.g.r + (s64)kcal_pcc_cfg.b.b * in_pcc.b.r) / KCAL_UNITY_GAIN, 0, 65535);
+		pcc->b.g = clamp_val(((s64)kcal_pcc_cfg.b.r * in_pcc.r.g + (s64)kcal_pcc_cfg.b.g * in_pcc.g.g + (s64)kcal_pcc_cfg.b.b * in_pcc.b.g) / KCAL_UNITY_GAIN, 0, 65535);
+		pcc->b.b = clamp_val(((s64)kcal_pcc_cfg.b.r * in_pcc.r.b + (s64)kcal_pcc_cfg.b.g * in_pcc.g.b + (s64)kcal_pcc_cfg.b.b * in_pcc.b.b) / KCAL_UNITY_GAIN, 0, 65535);
+
+		pcc->r.c = (u32)clamp_val((s64)(s32)in_pcc.r.c + (s32)kcal_pcc_cfg.r.c, -32768, 32767);
+		pcc->g.c = (u32)clamp_val((s64)(s32)in_pcc.g.c + (s32)kcal_pcc_cfg.g.c, -32768, 32767);
+		pcc->b.c = (u32)clamp_val((s64)(s32)in_pcc.b.c + (s32)kcal_pcc_cfg.b.c, -32768, 32767);
 	} else {
 		hw_cfg->payload = &kcal_pcc_cfg;
 	}
@@ -500,7 +510,15 @@ static struct attribute *kcal_attrs[] = {
 	NULL,
 };
 
+static umode_t kcal_is_visible(struct kobject *kobj, struct attribute *attr, int n)
+{
+	if (attr == &dev_attr_kcal_min.attr)
+		return 0444;
+	return 0664;
+}
+
 static const struct attribute_group kcal_attr_group = {
+	.is_visible = kcal_is_visible,
 	.attrs = kcal_attrs,
 };
 

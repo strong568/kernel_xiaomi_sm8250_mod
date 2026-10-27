@@ -1,50 +1,45 @@
-#include <linux/interrupt.h>
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/fs.h>
-#include <linux/seq_file.h>
-#include <linux/irq.h>
 
-#define linkdir "oemports10t"
-#define link_file "oemports10t/danda"
-#define link_source "/build.prop"
+#define LINK_DIR "oemports10t"
+#define LINK_FILE "danda"
+#define LINK_TARGET "/vendor/build.prop"
 
-static int __init oemports10t_init(void) {
-	char *driver_path;
-	static struct proc_dir_entry *link_dir;
-	static struct proc_dir_entry *link_t;
-	int ret = 0;
+static struct proc_dir_entry *oem_link_dir;
+static struct proc_dir_entry *oem_link_file;
 
-	printk(KERN_INFO "link initial");
-	
-	link_dir = proc_mkdir(linkdir, NULL);
-	driver_path = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (!driver_path) {
-		pr_err("%s: failed to allocate memory\n", __func__);
-		ret = -ENOMEM;
+static int __init oemports10t_init(void)
+{
+	oem_link_dir = proc_mkdir(LINK_DIR, NULL);
+	if (!oem_link_dir) {
+		pr_err("oemports10t: failed to create proc dir %s\n", LINK_DIR);
+		return -ENOMEM;
 	}
 
-	sprintf(driver_path, "/vendor%s", link_source);
-	pr_err("%s: driver_path=%s\n", __func__, driver_path);
-	link_t = proc_symlink(link_file, NULL, driver_path);
-	if (!link_t) {
-		ret = -ENOMEM;
+	oem_link_file = proc_symlink(LINK_FILE, oem_link_dir, LINK_TARGET);
+	if (!oem_link_file) {
+		pr_err("oemports10t: failed to create symlink %s -> %s\n", LINK_FILE, LINK_TARGET);
+		remove_proc_entry(LINK_DIR, NULL);
+		return -ENOMEM;
 	}
 
-	if (!link_t) {
-		ret = -ENOMEM;
-		printk(KERN_INFO "link failed");
-	} else
-		printk(KERN_INFO "link initialized");
-
-	return ret;
+	pr_info("oemports10t: initialized /proc/%s/%s -> %s\n", LINK_DIR, LINK_FILE, LINK_TARGET);
+	return 0;
 }
 
-static void __exit oemports10t_exit(void) {
-	printk(KERN_INFO "link exit");
+static void __exit oemports10t_exit(void)
+{
+	remove_proc_entry(LINK_FILE, oem_link_dir);
+	remove_proc_entry(LINK_DIR, NULL);
+	pr_info("oemports10t: unloaded\n");
 }
 
 module_init(oemports10t_init);
 module_exit(oemports10t_exit);
+
+MODULE_DESCRIPTION("OEM ports 10T helper");
+MODULE_LICENSE("GPL");

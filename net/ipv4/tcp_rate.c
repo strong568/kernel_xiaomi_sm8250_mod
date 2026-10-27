@@ -65,6 +65,7 @@ void tcp_rate_skb_sent(struct sock *sk, struct sk_buff *skb)
 	TCP_SKB_CB(skb)->tx.delivered_mstamp	= tp->delivered_mstamp;
 	TCP_SKB_CB(skb)->tx.delivered		= tp->delivered;
 	TCP_SKB_CB(skb)->tx.is_app_limited	= tp->app_limited ? 1 : 0;
+	TCP_SKB_CB(skb)->tx.in_flight		= tcp_packets_in_flight(tp);
 }
 
 /* When an skb is sacked or acked, we fill in the rate sample with the (prior)
@@ -89,6 +90,7 @@ void tcp_rate_skb_delivered(struct sock *sk, struct sk_buff *skb,
 		rs->prior_mstamp     = scb->tx.delivered_mstamp;
 		rs->is_app_limited   = scb->tx.is_app_limited;
 		rs->is_retrans	     = scb->sacked & TCPCB_RETRANS;
+		rs->tx_in_flight     = scb->tx.in_flight;
 
 		/* Record send time of most recently ACKed packet: */
 		tp->first_tx_mstamp  = tcp_skb_timestamp_us(skb);
@@ -132,6 +134,7 @@ void tcp_rate_gen(struct sock *sk, u32 delivered, u32 lost,
 	if (!rs->prior_mstamp || is_sack_reneg) {
 		rs->delivered = -1;
 		rs->interval_us = -1;
+		rs->tx_in_flight = 0;
 		return;
 	}
 	rs->delivered   = tp->delivered - rs->prior_delivered;

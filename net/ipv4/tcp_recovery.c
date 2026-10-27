@@ -4,6 +4,7 @@
 
 void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 {
+	const struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	tcp_skb_mark_lost_uncond_verify(tp, skb);
@@ -14,6 +15,8 @@ void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 		NET_ADD_STATS(sock_net(sk), LINUX_MIB_TCPLOSTRETRANSMIT,
 			      tcp_skb_pcount(skb));
 	}
+	if (icsk->icsk_ca_ops->skb_marked_lost)
+		icsk->icsk_ca_ops->skb_marked_lost(sk, skb);
 }
 
 static bool tcp_rack_sent_after(u64 t1, u64 t2, u32 seq1, u32 seq2)

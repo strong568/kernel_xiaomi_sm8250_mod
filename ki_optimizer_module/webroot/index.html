@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f2f1eb">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#101410">
   <title>Ki Optimizer</title>
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -12,11 +14,20 @@
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <!-- Incompatible Kernel Modal (Shown only if non-Ki-Kernel is running) -->
-  <div id="unsupported-modal" class="modal-overlay hidden" role="alertdialog" aria-modal="true" aria-labelledby="modal-title">
+  <div id="unsupported-modal" class="modal-overlay hidden" role="alertdialog" aria-modal="true"
+    aria-labelledby="modal-title">
     <div class="modal-card">
-      <div class="modal-icon-cross">❌</div>
+      <div class="modal-icon-alert" aria-hidden="true">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="15" y1="9" x2="9" y2="15"></line>
+          <line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+      </div>
       <h2 id="modal-title">Incompatible Kernel Detected!</h2>
       <div class="modal-kernel-badge" id="modal-kernel-ver">Unknown Kernel</div>
       <p class="modal-desc">
@@ -24,15 +35,16 @@
         Your current kernel is not supported.
       </p>
       <p class="modal-sub">
-        All kernel tuning controls, MGLRU, and power profiles have been deactivated to prevent system instability. Please flash Ki-Kernel to re-enable this module.
+        All kernel tuning controls, MGLRU, and power profiles have been deactivated to prevent system instability.
+        Please flash Ki-Kernel to re-enable this module.
       </p>
     </div>
   </div>
 
   <main class="app-shell">
     <header class="page-header">
-      <div class="heading-brand" style="display: flex; align-items: center; gap: 14px;">
-        <img src="icon.svg" alt="Ki Logo" style="width: 44px; height: 44px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); flex-shrink: 0;">
+      <div class="heading-brand">
+        <img src="icon.svg" alt="Ki Logo" class="brand-logo">
         <div class="heading-copy">
           <h1>Ki Optimizer</h1>
           <p class="device-name" id="device-model">POCO F4 (munch)</p>
@@ -55,194 +67,371 @@
       </div>
     </section>
 
-    <!-- Power Profiles Section -->
-    <section class="settings-section" aria-labelledby="profile-heading">
-      <div class="section-heading">
-        <h2 id="profile-heading">Power Profiles</h2>
-        <p>Choose device performance and energy efficiency priorities.</p>
-      </div>
-      <div class="profile-container" role="group" aria-label="Choose power profile">
-        <button type="button" class="profile-card bat" id="card-prof-0" data-profile="0" aria-pressed="false">
-          <span class="profile-name">Battery Saver</span>
-          <span class="profile-desc">Energy priority</span>
-        </button>
-        <button type="button" class="profile-card bal active" id="card-prof-1" data-profile="1" aria-pressed="true">
-          <span class="profile-name">Balanced</span>
-          <span class="profile-desc">General daily use</span>
-        </button>
-        <button type="button" class="profile-card perf" id="card-prof-2" data-profile="2" aria-pressed="false">
-          <span class="profile-name">Turbo Gaming</span>
-          <span class="profile-desc">Max performance</span>
-        </button>
-      </div>
-    </section>
+    <!-- Navigation Tabs -->
+    <nav class="view-tabs" role="tablist" aria-label="Settings Views">
+      <button type="button" class="tab-btn active" id="tab-kernel" role="tab" aria-selected="true"
+        data-target="panel-kernel">
+        <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+          <rect x="9" y="9" width="6" height="6"></rect>
+          <line x1="9" y1="1" x2="9" y2="4"></line>
+          <line x1="15" y1="1" x2="15" y2="4"></line>
+          <line x1="9" y1="20" x2="9" y2="23"></line>
+          <line x1="15" y1="20" x2="15" y2="23"></line>
+          <line x1="20" y1="9" x2="23" y2="9"></line>
+          <line x1="20" y1="14" x2="23" y2="14"></line>
+          <line x1="1" y1="9" x2="4" y2="9"></line>
+          <line x1="1" y1="14" x2="4" y2="14"></line>
+        </svg>
+        <span>Kernel Tweaks</span>
+      </button>
+      <button type="button" class="tab-btn" id="tab-daemon" role="tab" aria-selected="false" data-target="panel-daemon">
+        <svg class="tab-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="20" height="12" rx="6"></rect>
+          <line x1="6" y1="12" x2="10" y2="12"></line>
+          <line x1="8" y1="10" x2="8" y2="14"></line>
+          <line x1="15" y1="13" x2="15.01" y2="13"></line>
+          <line x1="18" y1="11" x2="18.01" y2="11"></line>
+        </svg>
+        <span>Auto Game Turbo</span>
+      </button>
+    </nav>
 
-    <!-- Memory Tuning Section -->
-    <section class="settings-section" aria-labelledby="memory-heading">
-      <div class="section-heading">
-        <h2 id="memory-heading">Memory Tuning</h2>
-      </div>
-      <div class="settings-list">
-        <!-- MGLRU -->
-        <div class="setting-row setting-row-stack" id="row-mglru">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Multi-Gen LRU (MGLRU)</h3>
-              <span class="setting-status" id="badge-mglru">Checking...</span>
+    <!-- TAB 1: KERNEL TWEAKS PANEL -->
+    <div id="panel-kernel" class="tab-panel active" role="tabpanel" aria-labelledby="tab-kernel">
+      <!-- Power Profiles Section -->
+      <section class="settings-section" aria-labelledby="profile-heading">
+        <div class="section-heading">
+          <h2 id="profile-heading">Power Profiles</h2>
+          <p>Choose device performance and energy efficiency priorities.</p>
+        </div>
+        <div class="profile-container" role="group" aria-label="Choose power profile">
+          <button type="button" class="profile-card bat" id="card-prof-0" data-profile="0" aria-pressed="false">
+            <span class="profile-name">Battery Saver</span>
+            <span class="profile-desc">Energy priority</span>
+          </button>
+          <button type="button" class="profile-card bal active" id="card-prof-1" data-profile="1" aria-pressed="true">
+            <span class="profile-name">Balanced</span>
+            <span class="profile-desc">General daily use</span>
+          </button>
+          <button type="button" class="profile-card perf" id="card-prof-2" data-profile="2" aria-pressed="false">
+            <span class="profile-name">Turbo Gaming</span>
+            <span class="profile-desc">Max performance</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Memory Tuning Section -->
+      <section class="settings-section" aria-labelledby="memory-heading">
+        <div class="section-heading">
+          <h2 id="memory-heading">Memory Tuning</h2>
+        </div>
+        <div class="settings-list">
+          <!-- MGLRU -->
+          <div class="setting-row setting-row-stack" id="row-mglru">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Multi-Gen LRU (MGLRU)</h3>
+                <span class="setting-status" id="badge-mglru">Checking...</span>
+              </div>
+              <p>Modern memory page reclaiming algorithm. Controls page table scanning depth.</p>
             </div>
-            <p>Modern memory page reclaiming algorithm. Controls page table scanning depth.</p>
+            <div class="mglru-segmented" id="mglru-group">
+              <button type="button" class="mglru-btn" data-mode="0" id="btn-mglru-0">Off</button>
+              <button type="button" class="mglru-btn" data-mode="1" id="btn-mglru-1">Standard</button>
+              <button type="button" class="mglru-btn" data-mode="7" id="btn-mglru-7">Gaming</button>
+            </div>
           </div>
-          <div class="mglru-segmented" id="mglru-group">
-            <button type="button" class="mglru-btn" data-mode="0" id="btn-mglru-0">Off</button>
-            <button type="button" class="mglru-btn" data-mode="1" id="btn-mglru-1">Standard</button>
-            <button type="button" class="mglru-btn" data-mode="7" id="btn-mglru-7">Gaming</button>
+
+          <!-- Swappiness Slider -->
+          <div class="setting-row setting-row-stack" id="row-swappiness">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>zRAM Swappiness</h3>
+                <span class="setting-status" id="badge-swappiness">Supported</span>
+              </div>
+              <p>Controls kernel aggressiveness in paging inactive memory pages into compressed zRAM.</p>
+            </div>
+            <div class="range-container">
+              <div class="range-header">
+                <label for="range-swappiness">Swappiness Level</label>
+                <output class="range-val" id="val-swappiness" for="range-swappiness">130</output>
+              </div>
+              <input type="range" id="range-swappiness" min="0" max="200" step="5" value="130">
+              <div class="range-scale"><span>0 (Low)</span><span>100 (Default)</span><span>200 (Aggressive)</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Power & Charging Section -->
+      <section class="settings-section" aria-labelledby="power-heading">
+        <div class="section-heading">
+          <h2 id="power-heading">Power & Charging</h2>
+        </div>
+        <div class="settings-list">
+          <!-- Bypass Charging -->
+          <div class="setting-row" id="row-bypass">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Bypass Charging (Direct Wall Power)</h3>
+                <span class="setting-status" id="badge-bypass">Checking...</span>
+              </div>
+              <p>Powers the hardware directly from the charger without routing through the battery. Keeps temperature
+                cool during heavy gaming.</p>
+            </div>
+            <label class="switch" aria-label="Toggle bypass charging">
+              <input type="checkbox" id="toggle-bypass">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- Fast Charge -->
+          <div class="setting-row" id="row-fastcharge">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Screen-On Fast Charge</h3>
+                <span class="setting-status" id="badge-fastcharge">Checking...</span>
+              </div>
+              <p>Forces maximum charging input current even while the display screen is turned on.</p>
+            </div>
+            <label class="switch" aria-label="Toggle screen-on fast charge">
+              <input type="checkbox" id="toggle-fastcharge">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- Screen-Off Deep Eco -->
+          <div class="setting-row" id="row-screenoff">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Screen-Off Deep Eco</h3>
+                <span class="setting-status" id="badge-screenoff">Checking...</span>
+              </div>
+              <p>Reduces standby power drain and throttles idle background clock frequencies when screen is off.</p>
+            </div>
+            <label class="switch" aria-label="Toggle screen-off deep eco">
+              <input type="checkbox" id="toggle-screenoff">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- Wakelock Blocker -->
+          <div class="setting-row" id="row-wakelock">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Wakelock Blocker</h3>
+                <span class="setting-status" id="badge-wakelock">Checking...</span>
+              </div>
+              <p>Blocks unnecessary background scan wakeups to reduce battery drain during sleep.</p>
+            </div>
+            <label class="switch" aria-label="Toggle wakelock blocker">
+              <input type="checkbox" id="toggle-wakelock">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- System & Storage Section -->
+      <section class="settings-section" aria-labelledby="system-heading">
+        <div class="section-heading">
+          <h2 id="system-heading">Storage & System</h2>
+        </div>
+        <div class="settings-list">
+          <!-- Dynamic Fsync -->
+          <div class="setting-row" id="row-dynfsync">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Dynamic Fsync</h3>
+                <span class="setting-status" id="badge-dynfsync">Checking...</span>
+              </div>
+              <p>Disables synchronous filesystem sync while screen is active for instant UFS 3.1 storage I/O and zero
+                stutter.</p>
+            </div>
+            <label class="switch" aria-label="Toggle dynamic fsync">
+              <input type="checkbox" id="toggle-dynfsync">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- Dynamic Thermal Guard -->
+          <div class="setting-row" id="row-thermal">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Dynamic Thermal Guard</h3>
+                <span class="setting-status" id="badge-thermal">Checking...</span>
+              </div>
+              <p>Adaptive kernel thermal throttling governor to prevent sudden FPS frame drops during extended gameplay.
+              </p>
+            </div>
+            <label class="switch" aria-label="Toggle thermal guard">
+              <input type="checkbox" id="toggle-thermal">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- TCP Congestion Control -->
+          <div class="setting-row setting-row-stack setting-row-select" id="row-tcp">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>TCP Congestion Algorithm</h3>
+                <span class="setting-status" id="badge-tcp">Checking...</span>
+              </div>
+              <p>Select TCP transmission algorithm for stable gaming ping and optimal download speeds.</p>
+            </div>
+            <label class="select-wrap" for="select-tcp">
+              <select class="custom-select" id="select-tcp">
+                <option value="bbr3">bbr3 (Google BBRv3)</option>
+                <option value="bbr">bbr (Google BBRv1)</option>
+                <option value="westwood-sub">westwood-sub (Loss-Tolerant)</option>
+                <option value="westwood">westwood (Loss-Tolerant)</option>
+                <option value="cubic">cubic (Standard)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB 2: AUTO GAME TURBO (DAEMON) PANEL -->
+    <div id="panel-daemon" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-daemon">
+      <!-- Daemon Hero Card -->
+      <section class="settings-section">
+        <div class="daemon-hero-card">
+          <div class="daemon-hero-left">
+            <div class="daemon-hero-title">
+              <span class="daemon-indicator" id="daemon-indicator"></span>
+              <h3>Ki-Daemon Auto Game Turbo</h3>
+            </div>
+            <p class="daemon-hero-sub">Native Rust background service. Detects foreground games with zero overhead,
+              automatically switching profiles & thermal limits.</p>
+            <div class="daemon-tags">
+              <span class="daemon-badge" id="daemon-status-badge">Checking...</span>
+              <span class="daemon-badge" id="daemon-pid-badge">PID: --</span>
+              <span class="daemon-badge" id="daemon-fg-badge">App: --</span>
+            </div>
+          </div>
+          <div class="daemon-hero-right">
+            <label class="switch" aria-label="Toggle Ki-Daemon Master">
+              <input type="checkbox" id="toggle-daemon-master" checked>
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Automation Rules -->
+      <section class="settings-section" aria-labelledby="rules-heading">
+        <div class="section-heading">
+          <h2 id="rules-heading">Automation Rules</h2>
+          <p>Configure automated kernel behaviors during gaming and daily use.</p>
+        </div>
+        <div class="settings-list">
+          <!-- Game Profile Trigger -->
+          <div class="setting-row setting-row-stack setting-row-select" id="row-game-prof">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Game Launch Profile</h3>
+                <span class="setting-status" id="badge-game-prof">Turbo Gaming</span>
+              </div>
+              <p>Power profile activated automatically the moment a game enters foreground.</p>
+            </div>
+            <label class="select-wrap" for="select-game-prof">
+              <select class="custom-select" id="select-game-prof">
+                <option value="2">Turbo Gaming (Uncapped 3.19GHz)</option>
+                <option value="1">Balanced (2.84GHz Sweet-Spot)</option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Exit Game Profile Trigger -->
+          <div class="setting-row setting-row-stack setting-row-select" id="row-exit-prof">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Game Exit Restore Profile</h3>
+                <span class="setting-status" id="badge-exit-prof">Balanced</span>
+              </div>
+              <p>Power profile restored automatically when exiting back to home or daily apps.</p>
+            </div>
+            <label class="select-wrap" for="select-exit-prof">
+              <select class="custom-select" id="select-exit-prof">
+                <option value="1">Balanced </option>
+                <option value="0">Battery Saver </option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Auto Bypass Charging -->
+          <div class="setting-row" id="row-auto-bypass">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Auto Bypass Charging in Games</h3>
+                <span class="setting-status" id="badge-auto-bypass">Active</span>
+              </div>
+              <p>Engages direct wall power only while playing games and plugged into a charger. Eliminates heat and
+                protects battery health.</p>
+            </div>
+            <label class="switch" aria-label="Toggle auto bypass charging">
+              <input type="checkbox" id="toggle-auto-bypass" checked>
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- Auto MGLRU Boost -->
+          <div class="setting-row" id="row-auto-mglru">
+            <div class="setting-copy">
+              <div class="setting-title-line">
+                <h3>Auto MGLRU Gaming Turbo</h3>
+                <span class="setting-status" id="badge-auto-mglru">Active</span>
+              </div>
+              <p>Automatically upgrades MGLRU to Mode 7 (Gaming Turbo) during game sessions, and restores to Mode 1
+                (Standard) on exit.</p>
+            </div>
+            <label class="switch" aria-label="Toggle auto MGLRU boost">
+              <input type="checkbox" id="toggle-auto-mglru" checked>
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Game Detection Library -->
+      <section class="settings-section" aria-labelledby="games-heading">
+        <div class="section-heading">
+          <div class="games-header-flex">
+            <div>
+              <h2 id="games-heading">Game Detection Library</h2>
+              <p>Applications recognized by Ki-Daemon as games (<span id="games-count">0</span> packages configured).
+              </p>
+            </div>
           </div>
         </div>
 
-        <!-- Swappiness Slider -->
-        <div class="setting-row setting-row-stack" id="row-swappiness">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>zRAM Swappiness</h3>
-              <span class="setting-status" id="badge-swappiness">Supported</span>
-            </div>
-            <p>Controls kernel aggressiveness in paging inactive memory pages into compressed zRAM.</p>
+        <div class="add-game-card">
+          <div class="add-game-input-row">
+            <input type="text" id="input-new-game" class="custom-input" placeholder="e.g. com.miHoYo.hkrpg"
+              aria-label="Add game package name" autocomplete="off" autocorrect="off" autocapitalize="off"
+              spellcheck="false">
+            <button type="button" class="btn-add-game" id="btn-add-game">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Add Game</span>
+            </button>
           </div>
-          <div class="range-container">
-            <div class="range-header">
-              <label for="range-swappiness">Swappiness Level</label>
-              <output class="range-val" id="val-swappiness" for="range-swappiness">130</output>
-            </div>
-            <input type="range" id="range-swappiness" min="0" max="200" step="5" value="130">
-            <div class="range-scale"><span>0 (Low)</span><span>100 (Default)</span><span>200 (Aggressive)</span></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Power & Charging Section -->
-    <section class="settings-section" aria-labelledby="power-heading">
-      <div class="section-heading">
-        <h2 id="power-heading">Power & Charging</h2>
-      </div>
-      <div class="settings-list">
-        <!-- Bypass Charging -->
-        <div class="setting-row" id="row-bypass">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Bypass Charging (Direct Wall Power)</h3>
-              <span class="setting-status" id="badge-bypass">Checking...</span>
-            </div>
-            <p>Powers the hardware directly from the charger without routing through the battery. Keeps temperature cool during heavy gaming.</p>
-          </div>
-          <label class="switch" aria-label="Toggle bypass charging">
-            <input type="checkbox" id="toggle-bypass">
-            <span class="switch-track" aria-hidden="true"></span>
-          </label>
+          <p class="add-game-tip">Tip: Enter any Android package name to trigger Auto Game Turbo when launched.</p>
         </div>
 
-        <!-- Fast Charge -->
-        <div class="setting-row" id="row-fastcharge">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Screen-On Fast Charge</h3>
-              <span class="setting-status" id="badge-fastcharge">Checking...</span>
-            </div>
-            <p>Forces maximum charging input current even while the display screen is turned on.</p>
-          </div>
-          <label class="switch" aria-label="Toggle screen-on fast charge">
-            <input type="checkbox" id="toggle-fastcharge">
-            <span class="switch-track" aria-hidden="true"></span>
-          </label>
+        <div class="games-chips-container" id="games-chips-list">
+          <!-- Dynamically populated via app.js -->
         </div>
-
-        <!-- Screen-Off Deep Eco -->
-        <div class="setting-row" id="row-screenoff">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Screen-Off Deep Eco</h3>
-              <span class="setting-status" id="badge-screenoff">Checking...</span>
-            </div>
-            <p>Reduces standby power drain and throttles idle background clock frequencies when screen is off.</p>
-          </div>
-          <label class="switch" aria-label="Toggle screen-off deep eco">
-            <input type="checkbox" id="toggle-screenoff">
-            <span class="switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-
-        <!-- Wakelock Blocker -->
-        <div class="setting-row" id="row-wakelock">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Wakelock Blocker</h3>
-              <span class="setting-status" id="badge-wakelock">Checking...</span>
-            </div>
-            <p>Blocks unnecessary background scan wakeups to reduce battery drain during sleep.</p>
-          </div>
-          <label class="switch" aria-label="Toggle wakelock blocker">
-            <input type="checkbox" id="toggle-wakelock">
-            <span class="switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-      </div>
-    </section>
-
-    <!-- System & Storage Section -->
-    <section class="settings-section" aria-labelledby="system-heading">
-      <div class="section-heading">
-        <h2 id="system-heading">Storage & System</h2>
-      </div>
-      <div class="settings-list">
-        <!-- Dynamic Fsync -->
-        <div class="setting-row" id="row-dynfsync">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Dynamic Fsync</h3>
-              <span class="setting-status" id="badge-dynfsync">Checking...</span>
-            </div>
-            <p>Disables synchronous filesystem sync while screen is active for instant UFS 3.1 storage I/O and zero stutter.</p>
-          </div>
-          <label class="switch" aria-label="Toggle dynamic fsync">
-            <input type="checkbox" id="toggle-dynfsync">
-            <span class="switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-
-        <!-- Dynamic Thermal Guard -->
-        <div class="setting-row" id="row-thermal">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>Dynamic Thermal Guard</h3>
-              <span class="setting-status" id="badge-thermal">Checking...</span>
-            </div>
-            <p>Adaptive kernel thermal throttling governor to prevent sudden FPS frame drops during extended gameplay.</p>
-          </div>
-          <label class="switch" aria-label="Toggle thermal guard">
-            <input type="checkbox" id="toggle-thermal">
-            <span class="switch-track" aria-hidden="true"></span>
-          </label>
-        </div>
-
-        <!-- TCP Congestion Control -->
-        <div class="setting-row setting-row-select" id="row-tcp">
-          <div class="setting-copy">
-            <div class="setting-title-line">
-              <h3>TCP Congestion Algorithm</h3>
-              <span class="setting-status" id="badge-tcp">Checking...</span>
-            </div>
-            <p>Select TCP transmission algorithm for stable gaming ping and optimal download speeds.</p>
-          </div>
-          <label class="select-wrap" for="select-tcp">
-            <select class="custom-select" id="select-tcp">
-              <option value="bbr">bbr (Google BBR)</option>
-              <option value="westwood">westwood (Loss-Tolerant)</option>
-              <option value="cubic">cubic (Standard)</option>
-            </select>
-          </label>
-        </div>
-      </div>
-    </section>
+      </section>
+    </div>
 
     <footer class="page-note">
       Features are dynamically verified and enabled according to Ki-Kernel capability nodes.
@@ -262,4 +451,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

@@ -1,13 +1,44 @@
 # Ki-kernel for POCO F4 / Redmi K40S (munch)
 
-**Build Date:** 2026-10-19  
+**Build Date:** 2026-10-27  
 **Kernel Version:** Linux 4.19.325  
-**Variant:** MIUI/HyperOS, AOSP, And ColorOS/OxygenOS
+**Variant:** MIUI/HyperOS, AOSP, And ColorOS/OxygenOS (Universal & Single Variants)  
 **Toolchain:** ZyCromerZ Clang 16.0.6 (LLVM 16.0.6 + GNU Binutils 2.47)  
 
 ---
 
-## Ki-kernel v1.4.1 P3:
+## Ki-kernel v1.5 :
+- Updated BakaSU and ReSukiSU to UAPI v6
+- Added full FinaSU Manager support
+- Added 32-bit userspace KernelSU compatibility
+- Added kernel-side per-app network isolation
+- Synced SuSFS v2.3.0 inline hooks and bugfixes
+- Added automated SuSFS early-boot spoofing
+- Added SuSFS priority UID filter protection
+- Updated NoMount kernel integration to v2.2.0
+- Fixed Kernel Manager sysfs SELinux denials
+- Ported hardware AOSP DC Dimming support
+- Fixed display sysfs SELinux permission issues
+- Improved SDE KCAL hardware color calibration
+- Fixed Force Fast Charge on wall adapters
+- Restored full 67W PPS turbo charging
+- Fixed random thermal shutdowns while charging
+- Fixed duplicate charger sysfs registration warnings
+- Tuned Battery, Balanced, and Performance profiles
+- Tuned CPU scheduling and gaming frame pacing
+- Fixed screen-off wakeup freezes and AOD issues
+- Hardened Ki-Profile sysfs and worker stability
+- Fixed Adreno GPU freezes and Sleep of Death
+- Fixed MGLRU lock contention and app freezes
+- Set BFQ and Maple as default I/O schedulers
+- Improved BBRv3 network congestion control
+- Fixed USB tethering and DHCP connection issues
+- Improved Droidspaces and Linux container support
+- Added OPlus Frame Boost and SchedAssist support
+- Fixed OPlus port netlink and driver issues
+- Improved AnyKernel3 universal Multi-ROM detection
+
+## Ki-kernel v1.4.1:
 • Backported modern eBPF features for Android 16 and 17
 • Cherry-picked selected commits from re-noroi/FD and e404
 • Fixed BPF loader bootloops on newer Android ROMs

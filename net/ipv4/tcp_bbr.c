@@ -62,30 +62,20 @@
 #include <linux/inet_diag.h>
 #include <linux/inet.h>
 #include <linux/random.h>
-#include <linux/win_minmax.h>
-
-#include <trace/events/tcp.h>
 #include "tcp_dctcp.h"
 
 /* 4.19 Backport compatibility shims for BBRv3 */
 #define GSO_LEGACY_MAX_SIZE 65536
-#define TCP_ECN_LOW 16
 #define TCP_ECN_ECT_PERMANENT 32
 #define TCP_PLB_SCALE BBR_SCALE
 #ifndef TCP_CONG_WANTS_CE_EVENTS
 #define TCP_CONG_WANTS_CE_EVENTS 0x4
 #endif
 
-#define tx_in_flight prior_in_flight
-
 struct tcp_plb_state { u32 pause_until; };
 static inline void tcp_plb_update_state(const struct sock *sk, struct tcp_plb_state *plb, const int cong_ratio) {}
 static inline void tcp_plb_check_rehash(struct sock *sk, struct tcp_plb_state *plb) {}
 static inline void tcp_plb_update_state_upon_rto(struct sock *sk, struct tcp_plb_state *plb) {}
-
-#ifndef CA_EVENT_TLP_RECOVERY
-#define CA_EVENT_TLP_RECOVERY 6
-#endif
 
 #ifndef get_random_u32_below
 #define get_random_u32_below(n) (prandom_u32() % (n))
@@ -106,12 +96,6 @@ static inline bool tcp_skb_tx_in_flight_is_suspicious(u32 skb_pcount, u32 skb_sa
 {
 	return false;
 }
-
-
-/* Fallback for kernel 4.19 which lacks get_random_u32_below */
-#ifndef get_random_u32_below
-#define get_random_u32_below(n) (prandom_u32() % (n))
-#endif
 
 #define BBR_VERSION		3
 
@@ -229,7 +213,7 @@ static const u32 bbr_min_rtt_win_sec = 10;
 /* Minimum time (in ms) spent at bbr_cwnd_min_target in BBR_PROBE_RTT mode: */
 static const u32 bbr_probe_rtt_mode_ms = 100;
 /* Window length of probe_rtt_min_us filter (in ms), and consequently the
- * typical interval between PROBE_RTT mode entries. The default is 5000ms.
+ * typical interval between PROBE_RTT mode entries (10000ms in BBRv3).
  * Note that bbr_probe_rtt_win_ms must be <= bbr_min_rtt_win_sec * MSEC_PER_SEC
  */
 static const u32 bbr_probe_rtt_win_ms = 10000;
@@ -547,7 +531,7 @@ static u32 bbr_tso_segs_generic(struct sock *sk, unsigned int mss_now,
 }
 
 /* Custom tcp_tso_autosize() for BBR, used at transmit time to cap skb size. */
-__maybe_unused static u32 bbr_tso_segs(struct sock *sk, unsigned int mss_now)
+static u32 bbr_tso_segs(struct sock *sk, unsigned int mss_now)
 {
 	return bbr_tso_segs_generic(sk, mss_now, sk->sk_gso_max_size);
 }
@@ -905,10 +889,10 @@ static void bbr_check_probe_rtt_done(struct sock *sk)
  *
  * The min_rtt filter window is 10 seconds. When the min_rtt estimate expires,
  * we enter PROBE_RTT mode and cap the cwnd at bbr_cwnd_min_target=4 packets.
- * After at least bbr_probe_rtt_mode_ms=200ms and at least one packet-timed
+ * After at least bbr_probe_rtt_mode_ms=100ms and at least one packet-timed
  * round trip elapsed with that flight size <= 4, we leave PROBE_RTT mode and
- * re-enter the previous mode. BBR uses 200ms to approximately bound the
- * performance penalty of PROBE_RTT's cwnd capping to roughly 2% (200ms/10s).
+ * re-enter the previous mode. BBR uses 100ms to bound latency penalty
+ * and minimize throughput dips on mobile and interactive gaming connections.
  *
  * Note that flows need only pay 2% if they are busy sending over the last 10
  * seconds. Interactive applications (e.g., Web, RPCs, video chunks) often have
@@ -1045,7 +1029,7 @@ static u32 bbr_target_inflight(struct sock *sk)
 {
 	u32 bdp = bbr_inflight(sk, bbr_bw(sk), BBR_UNIT);
 
-	return min(bdp, tcp_sk(sk)->snd_cwnd);
+	return min(bdp, tcp_snd_cwnd(tcp_sk(sk)));
 }
 
 static bool bbr_is_probing_bandwidth(struct sock *sk)
@@ -1206,23 +1190,18 @@ static bool bbr_is_inflight_too_high(const struct sock *sk,
 				      const struct rate_sample *rs)
 {
 	const struct bbr *bbr = inet_csk_ca(sk);
-	u32 loss_thresh, ecn_thresh;
 
 	if (rs->losses > 0 && rs->tx_in_flight) {
-		loss_thresh = (u64)rs->tx_in_flight * bbr_param(sk, loss_thresh) >>
-				BBR_SCALE;
-		if (rs->losses > loss_thresh) {
+		u64 loss_scaled = (u64)rs->losses << BBR_SCALE;
+		u64 thresh_scaled = (u64)rs->tx_in_flight * bbr_param(sk, loss_thresh);
+
+		if (loss_scaled > thresh_scaled)
 			return true;
-		}
 	}
 
-	if (0 > 0 && rs->delivered > 0 &&
-	    bbr->ecn_eligible && !!bbr_param(sk, ecn_thresh)) {
-		ecn_thresh = (u64)rs->delivered * bbr_param(sk, ecn_thresh) >>
-				BBR_SCALE;
-		if (0 > ecn_thresh) {
-			return true;
-		}
+	if (bbr->ecn_eligible && bbr->ecn_in_round &&
+	    bbr->ecn_alpha > bbr_param(sk, ecn_thresh)) {
+		return true;
 	}
 
 	return false;
@@ -1496,7 +1475,7 @@ static void bbr_advance_latest_delivery_signals(
 	 * that a TLP retransmit plugged a tail loss, we'll want to remember
 	 * how much data the path delivered before the tail loss.
 	 */
-	if (bbr->loss_round_start && !0) {
+	if (bbr->loss_round_start && !rs->is_retrans) {
 		bbr->bw_latest = ctx->sample_bw;
 		bbr->inflight_latest = rs->delivered;
 	}
@@ -1759,8 +1738,9 @@ static bool bbr_check_time_to_probe_bw(struct sock *sk,
 		 * computes growth_this_round as 2^n it will be roughly the
 		 * desired volume of data (inflight_hi*ecn_reprobe_gain).
 		 */
-		n = ilog2((((u64)bbr->inflight_hi *
-			    bbr_param(sk, ecn_reprobe_gain)) >> BBR_SCALE));
+		u64 reprobe_val = ((u64)bbr->inflight_hi *
+				   bbr_param(sk, ecn_reprobe_gain)) >> BBR_SCALE;
+		n = reprobe_val ? ilog2(reprobe_val) : 0;
 		bbr_start_bw_probe_refill(sk, n);
 		return true;
 	}
@@ -2105,7 +2085,7 @@ out:
 	bbr_advance_latest_delivery_signals(sk, rs, &ctx);
 	bbr->prev_ca_state = inet_csk(sk)->icsk_ca_state;
 	bbr->loss_in_cycle |= rs->losses > 0;
-	bbr->ecn_in_cycle  |= 0 > 0;
+	bbr->ecn_in_cycle  |= (bbr->ecn_eligible && (bbr->ecn_in_round || (tp->delivered_ce > bbr->alpha_last_delivered_ce)));
 }
 
 static void bbr_init(struct sock *sk)
@@ -2206,8 +2186,8 @@ static void bbr_note_loss(struct sock *sk)
 }
 
 /* Core TCP stack informs us that the given skb was just marked lost. */
-__maybe_unused static void bbr_skb_marked_lost(struct sock *sk,
-					    const struct sk_buff *skb)
+static void bbr_skb_marked_lost(struct sock *sk,
+				const struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
@@ -2393,17 +2373,46 @@ static struct tcp_congestion_ops tcp_bbr_cong_ops __read_mostly = {
 	.ssthresh	= bbr_ssthresh,
 	.get_info	= bbr_get_info,
 	.set_state	= bbr_set_state,
+	.skb_marked_lost = bbr_skb_marked_lost,
+	.tso_segs	= bbr_tso_segs,
+};
+
+static struct tcp_congestion_ops tcp_bbr3_cong_ops __read_mostly = {
+	.flags		= TCP_CONG_NON_RESTRICTED | TCP_CONG_WANTS_CE_EVENTS,
+	.name		= "bbr3",
+	.owner		= THIS_MODULE,
+	.init		= bbr_init,
+	.cong_control	= bbr_main_wrapper,
+	.sndbuf_expand	= bbr_sndbuf_expand,
+	.undo_cwnd	= bbr_undo_cwnd,
+	.cwnd_event	= bbr_cwnd_event,
+	.ssthresh	= bbr_ssthresh,
+	.get_info	= bbr_get_info,
+	.set_state	= bbr_set_state,
+	.skb_marked_lost = bbr_skb_marked_lost,
+	.tso_segs	= bbr_tso_segs,
 };
 
 static int __init bbr_register(void)
 {
+	int ret;
+
 	BUILD_BUG_ON(sizeof(struct bbr) > ICSK_CA_PRIV_SIZE);
 
-	return tcp_register_congestion_control(&tcp_bbr_cong_ops);
+	ret = tcp_register_congestion_control(&tcp_bbr_cong_ops);
+	if (ret)
+		return ret;
+
+	ret = tcp_register_congestion_control(&tcp_bbr3_cong_ops);
+	if (ret)
+		tcp_unregister_congestion_control(&tcp_bbr_cong_ops);
+
+	return ret;
 }
 
 static void __exit bbr_unregister(void)
 {
+	tcp_unregister_congestion_control(&tcp_bbr3_cong_ops);
 	tcp_unregister_congestion_control(&tcp_bbr_cong_ops);
 }
 

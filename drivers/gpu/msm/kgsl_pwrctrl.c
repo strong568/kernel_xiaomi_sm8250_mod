@@ -1269,23 +1269,26 @@ void kgsl_set_performance_mode(bool enable)
 	adreno_dev = ADRENO_DEVICE(device);
 
 	mutex_lock(&device->mutex);
+	/*
+	 * Always clear any dangerous force_on bits that break GMU power collapse.
+	 * __force_on(CLK_ON/AXI_ON) must never be held during normal runtime,
+	 * as it prevents the GMU from sleeping and causes fatal GPU/display deadlocks.
+	 */
+	clear_bit(KGSL_PWRFLAGS_CLK_ON, &pwr->ctrl_flags);
+	clear_bit(KGSL_PWRFLAGS_AXI_ON, &pwr->ctrl_flags);
+	clear_bit(KGSL_PWRFLAGS_POWER_ON, &pwr->ctrl_flags);
+
 	if (enable) {
 		if (pwr->num_pwrlevels >= 2)
 			pwr->min_pwrlevel = min_t(unsigned int, 1, pwr->num_pwrlevels - 2);
-		pwr->interval_timeout = 2000;
-		__force_on(device, KGSL_PWRFLAGS_AXI_ON, 1);
-		__force_on(device, KGSL_PWRFLAGS_CLK_ON, 1);
+		pwr->interval_timeout = 200;
 		if (adreno_dev)
 			clear_bit(ADRENO_THROTTLING_CTRL, &adreno_dev->pwrctrl_flag);
-		kgsl_pwrctrl_pwrlevel_change(device, 0);
 	} else {
 		pwr->min_pwrlevel = pwr->num_pwrlevels - 2;
 		pwr->interval_timeout = 80;
-		__force_on(device, KGSL_PWRFLAGS_AXI_ON, 0);
-		__force_on(device, KGSL_PWRFLAGS_CLK_ON, 0);
 		if (adreno_dev)
 			set_bit(ADRENO_THROTTLING_CTRL, &adreno_dev->pwrctrl_flag);
-		kgsl_pwrctrl_pwrlevel_change(device, pwr->active_pwrlevel);
 	}
 	mutex_unlock(&device->mutex);
 }
